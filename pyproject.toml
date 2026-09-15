@@ -1,0 +1,25 @@
+[project]
+name = "vulnhound"
+version = "0.1.0"
+description = "AI-driven vulnerability hunting with full traffic audit"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+exclude = ["spike"]
