@@ -105,12 +105,11 @@ async def test_request_id_monotonic(env):
 
 async def test_malformed_request_is_recorded_not_silent(tmp_path):
     """畸形请求行不得逃逸审计：必须有 blocked 记录。"""
-    reader = writer = None
     target_port, target_server = await _start_fake_target()
     proxy = AuditProxy(("127.0.0.1", target_port, "http"), tmp_path / "p.jsonl")
     port = await proxy.start()
     try:
-        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        _reader, writer = await asyncio.open_connection("127.0.0.1", port)
         writer.write(b"GARBAGE-NO-SPACES\r\n\r\n")
         await writer.drain()
         await asyncio.sleep(0.2)
