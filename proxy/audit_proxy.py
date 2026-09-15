@@ -101,12 +101,20 @@ class AuditProxy:
                              writer: asyncio.StreamWriter) -> None:
         try:
             head = await reader.readuntil(b"\r\n\r\n")
-        except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError):
+        except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError) as exc:
+            st = self._new_state()
+            st.blocked, st.block_reason = True, f"read_error:{type(exc).__name__}"
+            self._record(st)
             writer.close()
             return
         lines = head.decode("latin-1").split("\r\n")
-        method, target, _version = lines[0].split(" ", 2)
         st = self._new_state()
+        try:
+            method, target, _version = lines[0].split(" ", 2)
+        except ValueError:
+            st.blocked, st.block_reason = True, "malformed_request_line"
+            await self._reject(writer, st)
+            return
         st.method = method
 
         if method == "CONNECT":

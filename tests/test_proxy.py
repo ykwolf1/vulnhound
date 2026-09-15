@@ -101,3 +101,24 @@ async def test_request_id_monotonic(env):
         await client.get(f"http://127.0.0.1:{target_port}/c")
     recs = _records(record_path)
     assert [r["request_id"] for r in recs] == [1, 2, 3]
+
+
+async def test_malformed_request_is_recorded_not_silent(tmp_path):
+    """畸形请求行不得逃逸审计：必须有 blocked 记录。"""
+    import asyncio as aio
+
+    rec = tmp_path / "p.jsonl"
+    proxy = AuditProxy(("127.0.0.1", FAKE_PORT, "http"), rec)
+    port = await proxy.start()
+    try:
+        reader, writer = await aio.open_connection("127.0.0.1", port)
+        writer.write(b"GARBAGE-NO-SPACES\r\n\r\n")
+        await writer.drain()
+        await aio.sleep(0.2)
+        writer.close()
+    finally:
+        await proxy.stop()
+    lines = rec.read_text().strip().splitlines()
+    assert lines, "畸形请求必须留审计记录"
+    entry = json.loads(lines[-1])
+    assert entry["blocked"] is True and "malformed" in entry["block_reason"]
