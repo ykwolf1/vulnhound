@@ -6,6 +6,7 @@ MVP 仅支持 HTTP（绝对 URL 形式的代理请求）；CONNECT 一律 403。
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -45,6 +46,7 @@ class AuditProxy:
 
     allowed: AuditTarget
     record_path: Path
+    on_record: Callable[[dict], None] | None = field(default=None, repr=False)
     _server: asyncio.AbstractServer | None = field(default=None, repr=False)
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
     _next_id: int = field(default=0, repr=False)
@@ -69,22 +71,22 @@ class AuditProxy:
     # ---- internals ----
 
     def _record(self, st: _RequestState) -> None:
-        line = json.dumps(
-            {
-                "request_id": st.request_id,
-                "ts": st.ts,
-                "method": st.method,
-                "url": st.url,
-                "status": st.status,
-                "req_body": st.req_body[:REQ_BODY_LIMIT],
-                "resp_body": st.resp_body[:RESP_BODY_LIMIT],
-                "blocked": st.blocked,
-                "block_reason": st.block_reason,
-            },
-            ensure_ascii=False,
-        )
+        record = {
+            "request_id": st.request_id,
+            "ts": st.ts,
+            "method": st.method,
+            "url": st.url,
+            "status": st.status,
+            "req_body": st.req_body[:REQ_BODY_LIMIT],
+            "resp_body": st.resp_body[:RESP_BODY_LIMIT],
+            "blocked": st.blocked,
+            "block_reason": st.block_reason,
+        }
+        line = json.dumps(record, ensure_ascii=False)
         with self.record_path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
+        if self.on_record is not None:
+            self.on_record(record)
 
     def _new_state(self) -> _RequestState:
         self._next_id += 1
