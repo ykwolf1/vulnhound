@@ -203,6 +203,15 @@ async def run_agent_v2(
     if resp.tool_calls and resp.tool_calls[0]["name"] == "submit_report":
         try:
             verdict = Verdict.model_validate(resp.tool_calls[0]["arguments"])
+            # 强制收卷同样执行证据契约：无证据的 finding 剔除（保留 discarded 供用户知情）
+            if verdict.findings:
+                dropped = [f for f in verdict.findings if not f.evidence]
+                if dropped:
+                    verdict.findings = [f for f in verdict.findings if f.evidence]
+                    for f in dropped:
+                        verdict.discarded.append(
+                            type(f)(title=f.title, reason="强制收卷时无证据引用，已按契约剔除")
+                        )
         except ValidationError:
             return None, events, "llm_error"
         events.append(StepEvent(n=n + 1, tag="conclude", text="submit_report(forced)", result=None))
