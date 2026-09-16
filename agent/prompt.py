@@ -1,6 +1,13 @@
 """系统提示词与工具定义（协议：原生 tool calling，见 docs/spike-decision.md）。"""
 
-__all__ = ["EXEC_TOOL", "REPORT_TOOL", "SYSTEM_TEMPLATE"]
+__all__ = [
+    "CHEAT_SHEET",
+    "DIRECTION_SECTION",
+    "EXEC_TOOL",
+    "REPORT_TOOL",
+    "SWITCH_DIRECTION_TOOL",
+    "SYSTEM_TEMPLATE",
+]
 
 SYSTEM_TEMPLATE = """你是漏洞猎手代理，在隔离沙箱容器中对目标 {url} 做黑盒安全测试。
 {creds_section}
@@ -72,6 +79,51 @@ REPORT_TOOL = {
     },
 }
 
+
+SWITCH_DIRECTION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "switch_direction",
+        "description": "结束当前方向（可带结论），开启新方向或回归已有方向",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "current_outcome": {
+                    "type": "string",
+                    "description": "当前方向的结论摘要（有发现/排除/无进展）",
+                },
+                "next_direction": {
+                    "type": "string",
+                    "description": "新方向名（如 sqli-blind, xss-stored, auth-bypass）",
+                },
+                "hypothesis": {
+                    "type": "string",
+                    "description": "新方向的初始假设",
+                },
+            },
+            "required": ["next_direction", "hypothesis"],
+        },
+    },
+}
+
+DIRECTION_SECTION = """
+## 方向管理
+你以"方向"为单位组织测试：每个方向有一个名字和一个明确的假设。
+
+- 初始方向选择：优先登录态/鉴权面（越权、会话缺陷 ROI 高）；其次目标技术栈的已知高危面（框架/中间件指纹对应的 N-day）；再次高 ROI 入口（可交互参数多的页面）。一次只专注一个方向。
+- 切换时机（调用 switch_direction）：当前方向已有结论（验证成功或明确排除）；连续多步无新进展；或该方向步数预算（15 步）耗尽。
+- 预算意识：每个方向约 15 步预算，总步数预算 100 步。切换时用 current_outcome 记录当前方向结论（发现/排除/无进展），保持方向少而精，避免在低产出方向反复消耗。
+"""
+
+CHEAT_SHEET = """## 速查卡
+- 现象≠结果：异常响应先验证再下结论。
+- 有 PoC 才报：findings 必须有可复现验证证据。
+- Scope 外会被阻断：所有请求走审计代理，越界即拒。
+- 预算尽就切换：方向 15 步无果就 switch_direction。
+- 发现多少报多少：不夸大、不隐瞒，排除项进 discarded。
+- 每条 evidence 引用真实 request_id。
+- 一次一个方向：当前假设不明就先收敛再动手。
+"""
 
 def build_system_prompt(target_url: str, creds: dict | None) -> str:
     creds_section = ""
