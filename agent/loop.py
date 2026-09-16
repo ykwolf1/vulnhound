@@ -133,4 +133,33 @@ async def run_agent(
             else:
                 messages.append({"role": "tool", "tool_call_id": cid, "content": f"未知工具: {name}"})
 
+        # 预算提醒：70% 时注入一次催促
+        if n == int(max_steps * 0.7):
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"提醒：步数预算已用 {n}/{max_steps}。请优先完成高价值验证并尽快 submit_report（发现多少报多少）。",
+                }
+            )
+
+    # 触顶后强制收卷轮：只给 submit_report 工具，迫使模型交出当前已有发现
+    events.append(StepEvent(n=n + 1, tag="conclude", text="budget_exhausted_forcing_report", result=None))
+    messages.append(
+        {
+            "role": "user",
+            "content": "步数预算已耗尽。请立即调用 submit_report 提交你当前已有的全部发现（可为空列表，但必须提交）。",
+        }
+    )
+    try:
+        resp = await llm.complete(messages, tools=[REPORT_TOOL])
+    except LLMError:
+        return None, events, "llm_error"
+    if resp.tool_calls and resp.tool_calls[0]["name"] == "submit_report":
+        try:
+            verdict = Verdict.model_validate(resp.tool_calls[0]["arguments"])
+        except ValidationError:
+            return None, events, "llm_error"
+        events.append(StepEvent(n=n + 1, tag="conclude", text="submit_report(forced)", result=None))
+        return verdict, events, "step_cap"  # 诚实标注：靠强制收卷获得的报告
+
     return None, events, "step_cap"

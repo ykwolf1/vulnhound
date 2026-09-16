@@ -73,12 +73,34 @@ async def test_normal_completion():
     assert events[0].result == "resp [request_id=1]"
 
 
-async def test_step_cap():
+async def test_step_cap_forces_report():
+    """触顶后强制收卷：最后一轮只给 submit_report，返回带 step_cap 标注的报告。"""
     llm = FakeLLM(
         [
             LLMResp(content="thinking...", tool_calls=[]),
             LLMResp(content="still thinking...", tool_calls=[]),
             LLMResp(content="more...", tool_calls=[]),
+            # 强制收卷轮的响应
+            LLMResp(content=None, tool_calls=[{
+                "id": "c9", "name": "submit_report",
+                "arguments": {"findings": [], "discarded": []},
+            }]),
+        ]
+    )
+    verdict, events, reason = await run_agent(llm, FakeSandbox({}), "http://t", None, max_steps=3)
+    assert reason == "step_cap"
+    assert verdict is not None and verdict.findings == []  # 强制收卷交出空报告
+    assert any(e.tag == "conclude" for e in events)
+
+
+async def test_step_cap_no_report_in_forced_round():
+    """强制收卷轮模型仍不交报告 → verdict None + step_cap。"""
+    llm = FakeLLM(
+        [
+            LLMResp(content="thinking...", tool_calls=[]),
+            LLMResp(content="still thinking...", tool_calls=[]),
+            LLMResp(content="more...", tool_calls=[]),
+            LLMResp(content="refuse", tool_calls=[]),  # 收卷轮拒绝
         ]
     )
     verdict, _events, reason = await run_agent(llm, FakeSandbox({}), "http://t", None, max_steps=3)
