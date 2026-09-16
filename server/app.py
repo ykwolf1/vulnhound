@@ -17,12 +17,15 @@ app = FastAPI(title="vulnhound")
 class CreateBody(BaseModel):
     address: str
     auth: dict | None = None
+    loop_version: str = "v2"
 
 
 @app.post("/api/sessions")
 async def post_session(body: CreateBody):
+    if body.loop_version not in ("v1", "v2"):
+        raise HTTPException(status_code=422, detail="loop_version must be 'v1' or 'v2'")
     try:
-        session_id = await create_session(body.address, body.auth)
+        session_id = await create_session(body.address, body.auth, body.loop_version)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     session = get(session_id)

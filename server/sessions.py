@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from agent.llm import DeepSeekLLM
 from agent.loop import run_agent
+from agent.loop_v2 import run_agent_v2
 from agent.runner import Sandbox
 from agent.schema import Verdict
 from proxy.audit_proxy import AuditProxy
@@ -32,7 +33,9 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S%z")
 
 
-async def create_session(address: str, creds: dict | None) -> str:
+async def create_session(
+    address: str, creds: dict | None, loop_version: str = "v2"
+) -> str:
     """解析 address 建会话目录，返回 session_id。"""
     parts = urlsplit(address if "://" in address else f"http://{address}")
     scheme = parts.scheme or "http"
@@ -52,6 +55,7 @@ async def create_session(address: str, creds: dict | None) -> str:
         "scheme": scheme,
         "creds": creds,
         "status": "running",
+        "loop_version": loop_version,
         "created_at": _now(),
     }
     (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
@@ -108,7 +112,7 @@ class Session:
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-    async def run(self) -> None:
+    async def run(self, time_budget: float = 1200) -> None:
         target = (self.meta["host"], self.meta["port"], self.meta["scheme"])
         record_path = self.dir / "proxy.jsonl"
         proxy = AuditProxy(allowed=target, record_path=record_path)
@@ -129,10 +133,25 @@ class Session:
 
             await sandbox.start()
             llm = DeepSeekLLM(api_key=api_key)
+            agent_fn = run_agent_v2 if self.meta.get("loop_version", "v2") == "v2" else run_agent
             try:
-                verdict, events, stopped_reason = await run_agent(
-                    llm, sandbox, self.meta["address"], self.meta.get("creds"), max_steps=40
+                verdict, events, stopped_reason = await asyncio.wait_for(
+                    agent_fn(
+                        llm, sandbox, self.meta["address"], self.meta.get("creds"), max_steps=40
+                    ),
+                    timeout=time_budget,
                 )
+            except TimeoutError:
+                # 时长预算（默认 20 分钟）耗尽：wait_for 取消后拿不到部分结果，
+                # 已收集 events 为空——接受，如实标注 time_cap。
+                logger.warning("agent time budget (%ss) exceeded", time_budget)
+                self._write_report(
+                    None, "time_cap",
+                    {"flows": 0, "requests_blocked": 0, "steps": 0},
+                )
+                self._finish_meta("failed", end_reason="time_cap")
+                self._emit({"type": "done", "stopped_reason": "time_cap", "status": "failed"})
+                return
             except Exception:
                 logger.exception("run_agent unexpected failure")
                 self._write_report(

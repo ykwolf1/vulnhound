@@ -182,7 +182,7 @@ async def test_run_agent_crash_finishes_session(tmp_path, monkeypatch):
     monkeypatch.setattr("server.sessions.Sandbox", lambda proxy_port: FakeSandbox(proxy_port))
     monkeypatch.setenv("LLM_API_KEY", "test")
 
-    sid = await create_session("http://127.0.0.1:8080", None)
+    sid = await create_session("http://127.0.0.1:8080", None, loop_version="v1")
     session = Session(sid)
     await session.run()
 
@@ -190,3 +190,96 @@ async def test_run_agent_crash_finishes_session(tmp_path, monkeypatch):
     assert meta["status"] == "failed" and meta.get("end_reason") == "internal_error"
     report = json.loads((tmp_path / sid / "report.json").read_text())
     assert report["stopped_reason"] == "internal_error" and report["verdict"] is None
+
+
+def _agent_stub(monkeypatch, name="run_agent_v2"):
+    """替换 agent 入口为记录调用的 stub，返回 (stub, calls)。"""
+    import server.sessions as sess
+
+    calls = []
+
+    async def stub(llm, sandbox, target, creds, max_steps=40):
+        calls.append({"target": target, "max_steps": max_steps})
+        return None, [], "completed"
+
+    monkeypatch.setattr(sess, name, stub)
+    return stub, calls
+
+
+async def _run_session(tmp_path, monkeypatch, loop_version=None):
+    import server.sessions as sess
+
+    monkeypatch.setattr(sess, "SESSIONS_DIR", tmp_path)
+    monkeypatch.setattr(sess, "_CACHE", {})
+    monkeypatch.setattr(
+        sess, "AuditProxy", lambda allowed, record_path: FakeProxy(allowed, record_path)
+    )
+    monkeypatch.setattr(sess, "Sandbox", lambda proxy_port: FakeSandbox(proxy_port))
+    monkeypatch.setattr(sess, "DeepSeekLLM", FakeAgentLLM)
+    monkeypatch.setenv("LLM_API_KEY", "test")
+
+    body = {"address": "http://127.0.0.1:8080"}
+    if loop_version:
+        body["loop_version"] = loop_version
+    from server.app import app
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        sid = (await c.post("/api/sessions", json=body)).json()["session_id"]
+        events = await consume_events(c, sid)
+        assert events[-1]["type"] == "done"
+    return sess.Session(sid)
+
+
+async def test_loop_version_v2_calls_run_agent_v2(tmp_path, monkeypatch):
+    _, calls = _agent_stub(monkeypatch, "run_agent_v2")
+    session = await _run_session(tmp_path, monkeypatch, loop_version="v2")
+    assert len(calls) == 1
+    assert session.meta["loop_version"] == "v2"
+
+
+async def test_default_loop_version_is_v2(tmp_path, monkeypatch):
+    """不传 loop_version：默认走 v2（run_agent_v2 被调，run_agent 不被调）。"""
+    _, calls = _agent_stub(monkeypatch, "run_agent_v2")
+    _, v1_calls = _agent_stub(monkeypatch, "run_agent")
+    session = await _run_session(tmp_path, monkeypatch)
+    assert len(calls) == 1 and v1_calls == []
+    assert session.meta["loop_version"] == "v2"
+
+
+async def test_loop_version_v1_calls_run_agent(tmp_path, monkeypatch):
+    _, v1_calls = _agent_stub(monkeypatch, "run_agent")
+    _, v2_calls = _agent_stub(monkeypatch, "run_agent_v2")
+    session = await _run_session(tmp_path, monkeypatch, loop_version="v1")
+    assert len(v1_calls) == 1 and v2_calls == []
+    assert session.meta["loop_version"] == "v1"
+
+
+async def test_time_cap_when_agent_exceeds_budget(tmp_path, monkeypatch):
+    """time_budget 耗尽：failed:time_cap 收尾，report stopped_reason=time_cap，verdict=None。"""
+    import asyncio
+
+    import server.sessions as sess
+
+    monkeypatch.setattr(sess, "SESSIONS_DIR", tmp_path)
+    monkeypatch.setattr(sess, "_CACHE", {})
+    monkeypatch.setattr(
+        sess, "AuditProxy", lambda allowed, record_path: FakeProxy(allowed, record_path)
+    )
+    monkeypatch.setattr(sess, "Sandbox", lambda proxy_port: FakeSandbox(proxy_port))
+    monkeypatch.setattr(sess, "DeepSeekLLM", FakeAgentLLM)
+    monkeypatch.setenv("LLM_API_KEY", "test")
+
+    async def sleeper(*a, **k):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(sess, "run_agent_v2", sleeper)
+
+    sid = await sess.create_session("http://127.0.0.1:8080", None)
+    session = sess.Session(sid)
+    await session.run(time_budget=0.05)
+
+    session.meta = json.loads((tmp_path / sid / "meta.json").read_text())
+    assert session.meta["status"] == "failed"
+    assert session.meta["end_reason"] == "time_cap"
+    report = json.loads((tmp_path / sid / "report.json").read_text())
+    assert report["stopped_reason"] == "time_cap"
+    assert report["verdict"] is None
