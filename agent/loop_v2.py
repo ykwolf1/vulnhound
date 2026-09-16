@@ -48,7 +48,6 @@ async def run_agent_v2(
 
     while n < max_steps:
         n += 1
-        budget_reminded = False
         try:
             resp = await llm.complete(messages, tools=[EXEC_TOOL, REPORT_TOOL, SWITCH_DIRECTION_TOOL])
         except LLMError:
@@ -161,7 +160,7 @@ async def run_agent_v2(
                 messages.append({"role": "tool", "tool_call_id": cid, "content": f"未知工具: {name}"})
 
         # 方向预算：预算尽则每步（且仅一次）注入提醒，由模型选择 switch 或 submit
-        if current is not None and current.steps_used >= max_steps_per_direction and not budget_reminded:
+        if current is not None and current.steps_used >= max_steps_per_direction and not current.budget_reminded:
             messages.append(
                 {
                     "role": "user",
@@ -171,7 +170,7 @@ async def run_agent_v2(
                     ),
                 }
             )
-            budget_reminded = True
+            current.budget_reminded = True
 
         # 总预算 70% 催促（同 MVP）
         if n == int(max_steps * 0.7):

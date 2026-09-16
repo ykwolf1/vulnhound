@@ -21,6 +21,7 @@ class Direction(BaseModel):
     status: Literal["exploring", "concluded", "abandoned"] = "exploring"
     steps_used: int = 0
     outcome: str | None = None
+    budget_reminded: bool = False
 
 
 class Discarded(BaseModel):
