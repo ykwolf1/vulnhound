@@ -20,6 +20,10 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+addopts = "-m 'not e2e'"
+markers = [
+    "e2e: real end-to-end against DVWA (needs LLM_API_KEY, docker image vh-agent, live target)",
+]
 
 [tool.ruff]
 line-length = 100
