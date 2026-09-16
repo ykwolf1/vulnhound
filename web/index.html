@@ -285,6 +285,7 @@ $('startBtn').onclick = async () => {
 
 /* ===================== 态2：SSE 实时渲染 ===================== */
 function startLive(address) {
+  go('live');
   $('liveUrl').textContent = address;
   $('timeline').innerHTML = '';
   $('flows').innerHTML = '';
