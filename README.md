@@ -75,6 +75,10 @@ docs/     spec 与实施计划
 sessions/ 会话目录：meta.json / events.jsonl / proxy.jsonl / report.json
 ```
 
+## V2：双层循环
+
+V2 在原单层 ReAct 之上增加方向管理层（外层）：模型可通过 `switch_direction` 工具在多个测试方向间切换，每个方向内部仍是假设驱动的 observe→act→verify 循环。创建会话时用 `loop_version` 参数选择（`"v1"` 单层 / `"v2"` 双层，默认 v2）。预算：单方向 15 步（耗尽提醒切换）、总步数 100 步、总时长 20 分钟，触顶强制出报告（`stopped_reason=step_cap` / `time_cap`）。
+
 ## 已知边界（MVP）
 
 - 会话为内存态实例缓存：服务重启后旧会话的报告可读，但事件流/SSE 不可恢复
