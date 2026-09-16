@@ -1,6 +1,5 @@
 """LLM 驱动的 agent 循环：tool calling → 沙箱执行 → 回喂 → 提交报告。"""
 
-import difflib
 import json
 from dataclasses import dataclass
 from typing import Literal
@@ -8,12 +7,13 @@ from typing import Literal
 from pydantic import ValidationError
 
 from agent.llm import LLMError
+from agent.progress import ProgressTracker
 from agent.prompt import EXEC_TOOL, REPORT_TOOL, build_system_prompt
 from agent.schema import Verdict
 
 __all__ = ["StepEvent", "run_agent"]
 
-Tag = Literal["observe", "act", "hypo", "verify", "conclude"]
+Tag = Literal["observe", "act", "hypo", "verify", "conclude", "direction"]
 _PROBE_HINTS = ("curl", "nmap", "nikto", "gobuster", "wget", "sqlmap")
 
 
@@ -24,6 +24,7 @@ class StepEvent:
     text: str
     cmd: str | None = None
     result: str | None = None
+    direction_id: str | None = None  # v2：产生该事件的方向（v1 恒为 None）
 
 
 def _infer_tag(cmd: str) -> Tag:
@@ -55,8 +56,7 @@ async def run_agent(
     messages: list[dict] = [{"role": "system", "content": build_system_prompt(target_url, creds)}]
     events: list[StepEvent] = []
     n = 0
-    recent_cmds: list[str] = []
-    last_stdout: str | None = None
+    progress = ProgressTracker()
     report_retried = False
 
     while n < max_steps:
@@ -98,17 +98,8 @@ async def run_agent(
                     {"role": "tool", "tool_call_id": cid, "content": events[-1].result}
                 )
                 # 无进展检测
-                recent_cmds.append(cmd)
-                if len(recent_cmds) >= 3 and len(set(recent_cmds[-3:])) == 1:
+                if progress.update(cmd, stdout):
                     return None, events, "no_progress"
-                if (
-                    last_stdout is not None
-                    and stdout.strip()
-                    and last_stdout.strip()
-                    and difflib.SequenceMatcher(None, last_stdout, stdout).ratio() > 0.9
-                ):
-                    return None, events, "no_progress"
-                last_stdout = stdout
 
             elif name == "submit_report":
                 try:
