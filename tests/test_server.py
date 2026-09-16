@@ -165,9 +165,8 @@ async def test_get_corrupt_session_dir_returns_none(env, tmp_path):
 
 async def test_run_agent_crash_finishes_session(tmp_path, monkeypatch):
     """run_agent 未预期异常：会话必须收尾（failed:internal_error + done + report 可取）。"""
-    import asyncio
 
-    from server.sessions import Session, SESSIONS_DIR, create_session
+    from server.sessions import Session, create_session
 
     monkeypatch.setattr("server.sessions.SESSIONS_DIR", tmp_path)
     monkeypatch.setattr("server.sessions._CACHE", {})
