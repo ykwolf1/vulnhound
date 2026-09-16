@@ -161,3 +161,33 @@ async def test_get_corrupt_session_dir_returns_none(env, tmp_path):
     assert sess.get("broken") is None
     with pytest.raises(json.JSONDecodeError):
         Session("broken")
+
+
+async def test_run_agent_crash_finishes_session(tmp_path, monkeypatch):
+    """run_agent 未预期异常：会话必须收尾（failed:internal_error + done + report 可取）。"""
+    import asyncio
+
+    from server.sessions import Session, SESSIONS_DIR, create_session
+
+    monkeypatch.setattr("server.sessions.SESSIONS_DIR", tmp_path)
+    monkeypatch.setattr("server.sessions._CACHE", {})
+
+    async def boom(*a, **k):
+        raise RuntimeError("agent exploded")
+
+    monkeypatch.setattr("server.sessions.run_agent", boom)
+    monkeypatch.setattr(
+        "server.sessions.AuditProxy",
+        lambda allowed, record_path: FakeProxy(allowed, record_path),
+    )
+    monkeypatch.setattr("server.sessions.Sandbox", lambda proxy_port: FakeSandbox(proxy_port))
+    monkeypatch.setenv("LLM_API_KEY", "test")
+
+    sid = await create_session("http://127.0.0.1:8080", None)
+    session = Session(sid)
+    await session.run()
+
+    meta = session.meta
+    assert meta["status"] == "failed" and meta.get("end_reason") == "internal_error"
+    report = json.loads((tmp_path / sid / "report.json").read_text())
+    assert report["stopped_reason"] == "internal_error" and report["verdict"] is None

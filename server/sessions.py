@@ -4,6 +4,9 @@
 """
 
 import asyncio
+import logging
+
+logger = logging.getLogger("svh.server")
 import json
 import os
 import secrets
@@ -126,9 +129,19 @@ class Session:
 
             await sandbox.start()
             llm = DeepSeekLLM(api_key=api_key)
-            verdict, events, stopped_reason = await run_agent(
-                llm, sandbox, self.meta["address"], self.meta.get("creds")
-            )
+            try:
+                verdict, events, stopped_reason = await run_agent(
+                    llm, sandbox, self.meta["address"], self.meta.get("creds")
+                )
+            except Exception:
+                logger.exception("run_agent unexpected failure")
+                self._write_report(
+                    None, "internal_error",
+                    {"flows": 0, "requests_blocked": 0, "steps": 0},
+                )
+                self._finish_meta("failed", end_reason="internal_error")
+                self._emit({"type": "done", "stopped_reason": "internal_error", "status": "failed"})
+                return
             for ev in events:
                 self._emit({"type": "step", **ev.__dict__})
 
