@@ -55,7 +55,7 @@ class AuditProxy:
         self.record_path.parent.mkdir(parents=True, exist_ok=True)
         self.record_path.touch()
         self._next_id = 0
-        self._client = httpx.AsyncClient()
+        self._client = httpx.AsyncClient(follow_redirects=False)
         self._server = await asyncio.start_server(self._handle_client, "127.0.0.1", 0)
         return self._server.sockets[0].getsockname()[1]
 
@@ -161,7 +161,7 @@ class AuditProxy:
                 headers=headers,
                 content=body,
             )
-        except httpx.HTTPError:
+        except (httpx.HTTPError, httpx.InvalidURL):
             st.blocked, st.block_reason = True, "upstream request failed"
             await self._reject(writer, st)
             return

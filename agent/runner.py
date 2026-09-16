@@ -92,7 +92,7 @@ class Sandbox:
             proc.kill()
             await proc.wait()
             return ExecResult(stdout="", stderr="timeout", returncode=-1)
-        return ExecResult(stdout=stdout.decode(), stderr=stderr.decode(), returncode=proc.returncode)
+        return ExecResult(stdout=stdout.decode(errors="replace"), stderr=stderr.decode(errors="replace"), returncode=proc.returncode)
 
     async def stop(self) -> None:
         if not self.container:
