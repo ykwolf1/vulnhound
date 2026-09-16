@@ -27,6 +27,18 @@ class Sandbox:
     async def start(self) -> None:
         name = f"vh-sandbox-{uuid.uuid4().hex[:8]}"
         proxy = f"http://host.docker.internal:{self.proxy_port}"
+        # curl 对 http:// URL 忽略大写 HTTP_PROXY，必须同时注入小写（经典坑）
+        proxy_env = {
+            "HTTP_PROXY": proxy,
+            "http_proxy": proxy,
+            "HTTPS_PROXY": proxy,
+            "https_proxy": proxy,
+            "ALL_PROXY": proxy,
+            "NO_PROXY": "localhost,127.0.0.1",
+        }
+        env_args: list[str] = []
+        for k, v in proxy_env.items():
+            env_args += ["-e", f"{k}={v}"]
         run = await asyncio.create_subprocess_exec(
             "docker",
             "run",
@@ -34,10 +46,7 @@ class Sandbox:
             "--rm",
             "--name",
             name,
-            "-e",
-            f"HTTP_PROXY={proxy}",
-            "-e",
-            f"HTTPS_PROXY={proxy}",
+            *env_args,
             self.image,
             "sleep",
             "infinity",
