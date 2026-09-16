@@ -18,6 +18,7 @@ SYSTEM_TEMPLATE = """你是漏洞猎手代理，在隔离沙箱容器中对目�
 
 ## 输出
 测试完成后调用 submit_report 工具提交 JSON 报告（findings + discarded），即结束任务。
+步数预算有限（40 步）：登录和探测要高效，优先高价值方向；发现多少报多少，剩余步数不多时立即 submit_report，不要耗尽预算。
 """
 
 EXEC_TOOL = {

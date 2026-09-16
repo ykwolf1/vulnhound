@@ -131,7 +131,7 @@ class Session:
             llm = DeepSeekLLM(api_key=api_key)
             try:
                 verdict, events, stopped_reason = await run_agent(
-                    llm, sandbox, self.meta["address"], self.meta.get("creds")
+                    llm, sandbox, self.meta["address"], self.meta.get("creds"), max_steps=40
                 )
             except Exception:
                 logger.exception("run_agent unexpected failure")
