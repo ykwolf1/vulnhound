@@ -83,6 +83,13 @@ details.creds .field { padding:0 var(--s3) var(--s3); }
 
 /* AI 时间线 */
 .timeline { padding:var(--s4); max-height:520px; overflow-y:auto; }
+details.dir-group { border:1px solid var(--border-subtle); border-radius:var(--r-md); margin-bottom:var(--s3); }
+details.dir-group > summary { display:flex; align-items:center; gap:var(--s2); padding:6px var(--s3);
+  font-size:12px; font-weight:500; color:var(--gray-600); cursor:pointer; user-select:none;
+  background:var(--gray-50); border-radius:var(--r-md); }
+.tag.direction { color:var(--brand-600); background:var(--brand-50); border:1px solid var(--brand-100); }
+details.dir-group .steps { padding:0 var(--s2); }
+details.dir-group .step { margin-left:var(--s3); }
 .step { display:flex; gap:var(--s3); padding:var(--s2) 0; border-bottom:1px solid var(--border-subtle); }
 .step:last-child { border:none; }
 .step .tag { flex:none; width:44px; text-align:center; font-size:11px; font-weight:500; padding:2px 0;
@@ -192,7 +199,7 @@ details.creds .field { padding:0 var(--s3) var(--s3); }
   <div class="session-head">
     <span class="url" id="liveUrl"></span>
     <span class="badge run"><span class="dot"></span>AI 测试中</span>
-    <div class="meter"><span id="mSteps">步数 0</span><span id="mFlows">流量 0 条</span><span id="mTime">00:00</span></div>
+    <div class="meter"><span id="mSteps">步数 0</span><span id="mFlows">流量 0 条</span><span id="mDirs">方向 1</span><span id="mTime">00:00</span></div>
   </div>
   <div class="live-grid">
     <div class="panel">
@@ -243,6 +250,7 @@ const SEVCN = { high: ['high', '高'], medium: ['med', '中'], low: ['low', '低
 let sessionId = null;
 let es = null;
 let timer = null;
+let curGroup = null;      // 当前方向分组的 .steps 容器
 const flows = new Map();   // request_id -> flow record（证据详情用）
 
 /* ===================== 态1：创建会话 ===================== */
@@ -292,9 +300,33 @@ function startLive(address) {
   $('mFlows').textContent = '流量 0 条';
 
   es = new EventSource(`/api/sessions/${sessionId}/events`);
+  let dirCount = 0;
+  curGroup = null;
+  $('mDirs').textContent = '方向 1';
+  const openGroup = (title, isDirection) => {
+    const tl = $('timeline');
+    const det = document.createElement('details');
+    det.className = 'dir-group';
+    det.open = true;
+    det.innerHTML = `<summary>${isDirection ? '<span class="tag direction">方向</span>' : ''}${esc(title)}</summary><div class="steps"></div>`;
+    tl.appendChild(det);
+    curGroup = det.querySelector('.steps');
+    tl.scrollTop = tl.scrollHeight;
+  };
   es.onmessage = ev => {
     let d; try { d = JSON.parse(ev.data); } catch { return; }
     if (d.type === 'step') {
+      if (!curGroup) openGroup('初始探索', false);
+      if (d.tag === 'direction') {
+        dirCount++;
+        $('mDirs').textContent = '方向 ' + (dirCount + 1);
+        openGroup(d.text || '方向 ' + (dirCount + 1), true);
+        steps++;
+        $('stepCount').textContent = steps + ' 步';
+        $('mSteps').textContent = '步数 ' + steps;
+        return;
+      }
+      if (!TAGCN[d.tag]) return;  // 未知 tag 静默忽略
       steps++;
       renderStep(d);
       $('stepCount').textContent = steps + ' 步';
@@ -316,6 +348,7 @@ function startLive(address) {
 
 function renderStep(s) {
   const tl = $('timeline');
+  const host = curGroup || tl;
   const el = document.createElement('div');
   el.className = 'step';
   const resShort = s.result ? s.result.split('\n').slice(0, 3).join('\n') : '';
@@ -323,7 +356,7 @@ function renderStep(s) {
     s.text ? `<div class="think">${esc(s.text)}</div>` : ''
   }${s.cmd ? `<div class="cmd"><span class="p">$</span> ${esc(s.cmd)}</div>` : ''
   }${resShort ? `<div class="res">→ ${esc(resShort)}</div>` : ''}</div>`;
-  tl.appendChild(el);
+  host.appendChild(el);
   tl.scrollTop = tl.scrollHeight;
 }
 
