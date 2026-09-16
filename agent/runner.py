@@ -53,7 +53,7 @@ class Sandbox:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        await run.communicate()
+        await asyncio.wait_for(run.communicate(), timeout=30)
         if run.returncode != 0:
             raise SandboxNotAvailableError(
                 f"docker run failed (rc={run.returncode}); image={self.image!r} missing or docker unavailable?"
@@ -68,7 +68,7 @@ class Sandbox:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        out, err = await inspect.communicate()
+        out, err = await asyncio.wait_for(inspect.communicate(), timeout=15)
         if inspect.returncode != 0 or out.decode().strip() != "true":
             raise SandboxNotAvailableError(
                 f"container {name} not running after start: {err.decode().strip()}"
