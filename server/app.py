@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from server.sessions import create_session, get
@@ -63,3 +65,7 @@ async def get_report(session_id: str):
     if not session.report_path.exists():
         raise HTTPException(status_code=409, detail="session still running")
     return json.loads(session.report_path.read_text(encoding="utf-8"))
+
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

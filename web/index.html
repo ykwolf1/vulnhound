@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vulnhound · AI 安全测试</title>
+<style>
+/* ============ Design Tokens（cross-product-ui-design-system 基线） ============ */
+:root {
+  /* visual */
+  --brand-500:#2f66f5; --brand-600:#1f4ee0; --brand-50:#eef4ff; --brand-100:#d9e6ff;
+  --gray-50:#f6f7f9; --gray-100:#e5e7eb; --gray-200:#e5e7eb; --gray-300:#d1d5db;
+  --gray-500:#6b7280; --gray-600:#4b5563; --gray-900:#1a1a1a;
+  --red-500:#ef4444; --red-50:#fef2f2;
+  --amber-500:#f59e0b; --amber-50:#fffbeb;
+  --green-600:#16a34a; --green-50:#f0fdf4;
+  /* semantic */
+  --bg-page:#f6f7f9; --bg-surface:#ffffff;
+  --text-primary:#1a1a1a; --text-secondary:#6b7280;
+  --border-default:#e5e7eb; --border-subtle:#f3f4f6;
+  --action:var(--brand-500); --action-hover:var(--brand-600);
+  --focus-ring:0 0 0 2px var(--bg-page),0 0 0 4px var(--brand-500);
+  /* space (4px grid) */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px;
+  /* radius / shadow */
+  --r-sm:4px; --r-md:6px; --r-lg:8px;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.05);
+  /* type */
+  --font-ui:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+  --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { background:var(--bg-page); color:var(--text-primary); font-family:var(--font-ui); font-size:14px; line-height:1.5; }
+
+/* ============ 顶栏 ============ */
+.topbar { height:56px; background:var(--bg-surface); border-bottom:1px solid var(--border-default);
+  display:flex; align-items:center; gap:var(--s4); padding:0 var(--s6); position:sticky; top:0; z-index:200; }
+.wordmark { display:flex; align-items:center; gap:var(--s2); font-weight:600; font-size:16px; }
+.wordmark svg { color:var(--action); }
+.topbar .sep { width:1px; height:20px; background:var(--border-default); }
+.topbar .stage { margin-left:auto; font-size:12px; color:var(--gray-500); }
+
+/* ============ 状态容器 ============ */
+.state { display:none; max-width:1024px; margin:0 auto; padding:var(--s8) var(--s6) 64px; }
+.state.active { display:block; }
+
+/* ============ 态1：输入 ============ */
+.hero { max-width:560px; margin:10vh auto 0; text-align:left; }
+.hero h1 { font-size:30px; font-weight:600; line-height:1.25; letter-spacing:-.5px; }
+.hero p.sub { color:var(--text-secondary); margin:var(--s3) 0 var(--s8); }
+.input-card { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg);
+  padding:var(--s6); box-shadow:var(--shadow-sm); }
+.field label { display:block; font-size:13px; font-weight:500; color:var(--gray-600); margin-bottom:var(--s2); }
+.field input { width:100%; height:40px; padding:0 var(--s3); border:1px solid var(--border-default);
+  border-radius:var(--r-md); font-family:var(--font-mono); font-size:14px; background:var(--bg-surface); }
+.field input:focus { outline:none; border-color:var(--action); box-shadow:0 0 0 3px var(--brand-100); }
+details.creds { margin-top:var(--s4); border:1px solid var(--border-subtle); border-radius:var(--r-md); }
+details.creds summary { padding:var(--s3); font-size:13px; color:var(--text-secondary); cursor:pointer; user-select:none; }
+details.creds .field { padding:0 var(--s3) var(--s3); }
+.btn-primary { margin-top:var(--s6); width:100%; height:44px; background:var(--action); color:#fff;
+  border:none; border-radius:var(--r-md); font:inherit; font-weight:500; font-size:15px; cursor:pointer; }
+.btn-primary:hover { background:var(--action-hover); }
+.btn-primary:disabled { opacity:.6; cursor:default; }
+.hero .note { margin-top:var(--s4); font-size:12px; color:var(--gray-500); display:flex; gap:var(--s2); align-items:center; }
+.hero .note svg { flex:none; color:var(--gray-500); }
+.hero .error { margin-top:var(--s3); font-size:13px; color:var(--red-500); display:none; }
+
+/* ============ 态2：实时会话 ============ */
+.session-head { display:flex; align-items:center; gap:var(--s3); margin-bottom:var(--s4); flex-wrap:wrap; }
+.session-head .url { font-family:var(--font-mono); font-size:14px; font-weight:500; }
+.badge { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:500;
+  padding:2px 10px; border-radius:999px; border:1px solid; }
+.badge.run { color:var(--action); border-color:var(--brand-100); background:var(--brand-50); }
+.badge.run .dot { width:6px; height:6px; border-radius:50%; background:var(--action); animation:pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity:.3; } }
+.meter { margin-left:auto; display:flex; gap:var(--s4); font-size:12px; color:var(--text-secondary); font-family:var(--font-mono); }
+.live-grid { display:grid; grid-template-columns:1fr 360px; gap:var(--s4); align-items:start; }
+@media (max-width:900px){ .live-grid { grid-template-columns:1fr; } }
+.panel { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg); overflow:hidden; }
+.panel-head { padding:var(--s3) var(--s4); border-bottom:1px solid var(--border-subtle);
+  font-size:13px; font-weight:500; color:var(--gray-600); display:flex; align-items:center; gap:var(--s2); }
+.panel-head .count { margin-left:auto; font-family:var(--font-mono); font-weight:400; color:var(--gray-500); }
+
+/* AI 时间线 */
+.timeline { padding:var(--s4); max-height:520px; overflow-y:auto; }
+.step { display:flex; gap:var(--s3); padding:var(--s2) 0; border-bottom:1px solid var(--border-subtle); }
+.step:last-child { border:none; }
+.step .tag { flex:none; width:44px; text-align:center; font-size:11px; font-weight:500; padding:2px 0;
+  border-radius:var(--r-sm); margin-top:2px; }
+.tag.observe { color:var(--gray-600); background:var(--gray-50); border:1px solid var(--border-default); }
+.tag.act { color:var(--action); background:var(--brand-50); border:1px solid var(--brand-100); }
+.tag.hypo { color:var(--amber-500); background:var(--amber-50); border:1px solid #fde68a; }
+.tag.verify { color:var(--green-600); background:var(--green-50); border:1px solid #bbf7d0; }
+.tag.conclude { color:var(--gray-500); background:var(--gray-100); border:1px solid var(--border-default); }
+.step .body { min-width:0; flex:1; }
+.step .think { font-size:13px; }
+.step .cmd { margin-top:6px; font-family:var(--font-mono); font-size:12px; background:#0e1013;
+  color:#e5e7eb; border-radius:var(--r-md); padding:10px 12px; white-space:pre-wrap; word-break:break-all; }
+.step .cmd .p { color:#8db6ff; }
+.step .res { margin-top:6px; font-family:var(--font-mono); font-size:12px; color:var(--gray-500); }
+.step .res b { color:var(--green-600); font-weight:500; }
+
+/* 代理流量表 */
+.flows { max-height:520px; overflow-y:auto; }
+.flow { display:grid; grid-template-columns:44px 52px 1fr 40px; gap:var(--s2); align-items:center;
+  padding:7px var(--s4); border-bottom:1px solid var(--border-subtle); font-family:var(--font-mono); font-size:12px; }
+.flow:hover { background:var(--gray-50); }
+.flow .rid { color:var(--gray-500); }
+.flow .m { font-weight:500; }
+.flow .m.POST { color:var(--amber-500); }
+.flow .m.GET { color:var(--action); }
+.flow .path { color:var(--gray-600); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.flow .st { text-align:right; color:var(--green-600); }
+.flow.blocked { background:var(--red-50); }
+.flow.blocked .st { color:var(--red-500); font-weight:500; }
+
+/* ============ 态3：报告 ============ */
+.report-head { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg);
+  padding:var(--s6); margin-bottom:var(--s4); }
+.report-head .row { display:flex; align-items:baseline; gap:var(--s3); flex-wrap:wrap; }
+.report-head h2 { font-size:20px; font-weight:600; }
+.report-head .meta { margin-top:var(--s3); display:flex; gap:var(--s6); font-size:13px; color:var(--text-secondary); flex-wrap:wrap; }
+.report-head .meta b { color:var(--text-primary); font-weight:500; font-family:var(--font-mono); }
+.stop-reason { margin-top:var(--s3); font-size:13px; color:#92400e; background:var(--amber-50);
+  border:1px solid #fde68a; border-radius:var(--r-md); padding:var(--s2) var(--s3); display:none; }
+.finding { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg);
+  margin-bottom:var(--s3); overflow:hidden; }
+.finding-head { display:flex; align-items:center; gap:var(--s3); padding:var(--s4) var(--s6); cursor:pointer; }
+.finding-head:hover { background:var(--gray-50); }
+.sev { flex:none; font-size:12px; font-weight:600; padding:2px 10px; border-radius:var(--r-sm); }
+.sev.high { color:#fff; background:var(--red-500); }
+.sev.med { color:#92400e; background:#fde68a; }
+.sev.low { color:var(--gray-600); background:var(--gray-100); }
+.finding-head .t { font-weight:500; }
+.finding-head .ev { margin-left:auto; font-family:var(--font-mono); font-size:12px; color:var(--gray-500); }
+.finding-body { display:none; padding:0 var(--s6) var(--s4); }
+.finding.open .finding-body { display:block; }
+.finding-body .why { font-size:13px; color:var(--gray-600); margin-bottom:var(--s3); }
+.evidence-pair { border:1px solid var(--border-default); border-radius:var(--r-md); overflow:hidden; margin-top:var(--s2); }
+.evidence-pair .lbl { font-size:11px; font-weight:500; color:var(--gray-500); padding:6px 12px;
+  background:var(--gray-50); border-bottom:1px solid var(--border-subtle); }
+.evidence-pair pre { font-family:var(--font-mono); font-size:12px; padding:10px 12px; white-space:pre-wrap;
+  word-break:break-all; color:var(--gray-600); }
+.evidence-pair pre.req { color:var(--text-primary); }
+.discarded { border:1px dashed var(--border-default); border-radius:var(--r-lg); padding:var(--s4) var(--s6);
+  font-size:13px; color:var(--text-secondary); margin-top:var(--s4); }
+.discarded b { font-weight:500; color:var(--gray-600); }
+.discarded .item { margin-top:var(--s2); }
+.empty-findings { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg);
+  padding:var(--s6); font-size:13px; color:var(--text-secondary); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wordmark">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    vulnhound
+  </div>
+  <div class="sep"></div>
+  <span style="font-size:12px;color:var(--gray-500)">AI 安全测试</span>
+  <span class="stage" id="stage"></span>
+</header>
+
+<!-- ================= 态 1：输入 ================= -->
+<section class="state active" id="s-input">
+  <div class="hero">
+    <h1>给一个地址，<br>AI 自己登录、自己找漏洞。</h1>
+    <p class="sub">AI 在沙箱内自由操作真实工具，全部流量经审计代理记录——报告里每个结论都能追溯到原始请求。</p>
+    <div class="input-card">
+      <div class="field">
+        <label>目标地址</label>
+        <input id="addr" placeholder="http://127.0.0.1:8080" spellcheck="false">
+      </div>
+      <details class="creds" id="creds">
+        <summary>登录凭证（可选，目标需要登录时提供）</summary>
+        <div class="field"><label>用户名</label><input id="user" spellcheck="false"></div>
+        <div class="field" style="margin-top:8px"><label>密码</label><input id="pass" type="password"></div>
+      </details>
+      <button class="btn-primary" id="startBtn">开始测试</button>
+      <p class="error" id="inputError"></p>
+    </div>
+    <p class="note">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      仅允许访问目标地址（host+port+协议完全匹配）；AI 的每一步都在沙箱容器内执行。
+    </p>
+  </div>
+</section>
+
+<!-- ================= 态 2：实时会话 ================= -->
+<section class="state" id="s-live">
+  <div class="session-head">
+    <span class="url" id="liveUrl"></span>
+    <span class="badge run"><span class="dot"></span>AI 测试中</span>
+    <div class="meter"><span id="mSteps">步数 0</span><span id="mFlows">流量 0 条</span><span id="mTime">00:00</span></div>
+  </div>
+  <div class="live-grid">
+    <div class="panel">
+      <div class="panel-head">AI 决策过程<span class="count" id="stepCount">0 步</span></div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">审计代理 · 全量流量<span class="count" id="flowCount">0 条</span></div>
+      <div class="flows" id="flows"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 态 3：报告 ================= -->
+<section class="state" id="s-report">
+  <div class="report-head">
+    <div class="row">
+      <h2>测试报告</h2>
+      <span class="badge" id="repBadge"></span>
+    </div>
+    <div class="meta" id="repMeta"></div>
+    <div class="stop-reason" id="stopReason"></div>
+  </div>
+  <div id="findings"></div>
+  <div class="discarded" id="discarded" style="display:none"></div>
+</section>
+
+<script>
+/* ===================== 通用 ===================== */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const go = s => {
+  document.querySelectorAll('.state').forEach(el => el.classList.remove('active'));
+  $('s-' + s).classList.add('active');
+  const names = { input: '① 输入', live: '② 进行中', report: '③ 报告' };
+  $('stage').textContent = names[s] || '';
+};
+
+const TAGCN = { observe: '观察', act: '行动', hypo: '假设', verify: '验证', conclude: '结论' };
+const REASONCN = {
+  step_cap: '步数触顶', no_progress: '无进展', llm_error: 'AI 服务异常',
+  internal_error: '内部错误', missing_key: '缺少 API Key',
+};
+const SEVCN = { high: ['high', '高'], medium: ['med', '中'], low: ['low', '低'] };
+
+let sessionId = null;
+let es = null;
+let timer = null;
+const flows = new Map();   // request_id -> flow record（证据详情用）
+
+/* ===================== 态1：创建会话 ===================== */
+$('startBtn').onclick = async () => {
+  const address = $('addr').value.trim();
+  const err = $('inputError');
+  err.style.display = 'none';
+  if (!address) { err.textContent = '请输入目标地址'; err.style.display = 'block'; return; }
+  const auth = ($('user').value || $('pass').value)
+    ? { username: $('user').value, password: $('pass').value } : undefined;
+  $('startBtn').disabled = true;
+  try {
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, ...(auth ? { auth } : {}) }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.detail || `HTTP ${res.status}`);
+    }
+    const { session_id } = await res.json();
+    sessionId = session_id;
+    startLive(address);
+  } catch (e) {
+    err.textContent = '创建会话失败：' + e.message;
+    err.style.display = 'block';
+  } finally {
+    $('startBtn').disabled = false;
+  }
+};
+
+/* ===================== 态2：SSE 实时渲染 ===================== */
+function startLive(address) {
+  $('liveUrl').textContent = address;
+  $('timeline').innerHTML = '';
+  $('flows').innerHTML = '';
+  $('stepCount').textContent = '0 步';
+  $('flowCount').textContent = '0 条';
+  let steps = 0, flowN = 0;
+  const t0 = Date.now();
+  timer = setInterval(() => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    $('mTime').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }, 1000);
+  $('mSteps').textContent = '步数 0';
+  $('mFlows').textContent = '流量 0 条';
+
+  es = new EventSource(`/api/sessions/${sessionId}/events`);
+  es.onmessage = ev => {
+    let d; try { d = JSON.parse(ev.data); } catch { return; }
+    if (d.type === 'step') {
+      steps++;
+      renderStep(d);
+      $('stepCount').textContent = steps + ' 步';
+      $('mSteps').textContent = '步数 ' + steps;
+    } else if (d.type === 'flow') {
+      flowN++;
+      flows.set(d.request_id, d);
+      renderFlow(d);
+      $('flowCount').textContent = flowN + ' 条';
+      $('mFlows').textContent = '流量 ' + flowN + ' 条';
+    } else if (d.type === 'done') {
+      es.close(); es = null;
+      clearInterval(timer); timer = null;
+      loadReport(d);
+    }
+  };
+  es.onerror = () => { /* 连接断开：等待 done 已处理；无操作 */ };
+}
+
+function renderStep(s) {
+  const tl = $('timeline');
+  const el = document.createElement('div');
+  el.className = 'step';
+  const resShort = s.result ? s.result.split('\n').slice(0, 3).join('\n') : '';
+  el.innerHTML = `<span class="tag ${esc(s.tag)}">${TAGCN[s.tag] || s.tag}</span><div class="body">${
+    s.text ? `<div class="think">${esc(s.text)}</div>` : ''
+  }${s.cmd ? `<div class="cmd"><span class="p">$</span> ${esc(s.cmd)}</div>` : ''
+  }${resShort ? `<div class="res">→ ${esc(resShort)}</div>` : ''}</div>`;
+  tl.appendChild(el);
+  tl.scrollTop = tl.scrollHeight;
+}
+
+function renderFlow(f) {
+  const fl = $('flows');
+  const el = document.createElement('div');
+  el.className = 'flow' + (f.blocked ? ' blocked' : '');
+  let path = f.url || '';
+  const m = path.match(/^https?:\/\/[^/]+(.*)$/);
+  if (m) path = m[1] || '/';
+  el.innerHTML = `<span class="rid">#${esc(f.request_id)}</span><span class="m ${esc(f.method)}">${esc(f.method)}</span>
+    <span class="path" title="${esc(f.url)}">${esc(path)}</span>
+    <span class="st">${f.blocked ? '拦截' : esc(f.status ?? '')}</span>`;
+  fl.appendChild(el);
+  fl.scrollTop = fl.scrollHeight;
+}
+
+/* ===================== 态3：报告 ===================== */
+async function loadReport(done) {
+  let report = null;
+  try {
+    const res = await fetch(`/api/sessions/${sessionId}/report`);
+    if (res.ok) report = await res.json();
+  } catch { /* fallthrough */ }
+
+  // 报告头
+  const badge = $('repBadge');
+  const failed = done && done.status === 'failed';
+  badge.textContent = failed ? '失败' : '已完成';
+  badge.style.cssText = failed
+    ? 'color:var(--red-500);border-color:#fecaca;background:var(--red-50)'
+    : 'color:var(--green-600);border-color:#bbf7d0;background:var(--green-50)';
+
+  const meta = $('repMeta');
+  const t = report && report.target;
+  const st = report && report.stats;
+  meta.innerHTML = `
+    <span>目标 <b>${esc(t ? t.address : $('liveUrl').textContent)}</b></span>
+    <span>发现 <b>${report && report.verdict ? report.verdict.findings.length : 0}</b> 个</span>
+    <span>流量 <b>${st ? st.flows : 0}</b> 条</span>
+    <span>拦截 <b>${st ? st.requests_blocked : 0}</b> 条</span>
+    <span>步数 <b>${st ? st.steps : 0}</b></span>`;
+
+  const reason = done && done.stopped_reason;
+  const sr = $('stopReason');
+  if (reason && reason !== 'completed') {
+    sr.textContent = '中止原因：' + (REASONCN[reason] || reason);
+    sr.style.display = 'block';
+  } else {
+    sr.style.display = 'none';
+  }
+
+  // 发现卡
+  const box = $('findings');
+  box.innerHTML = '';
+  const findings = report && report.verdict ? report.verdict.findings : [];
+  if (!findings.length) {
+    box.innerHTML = `<div class="empty-findings">${
+      failed ? '本次测试未产生结果（' + esc(REASONCN[reason] || reason) + '）。'
+             : '未发现可确认的漏洞（现象 ≠ 结果，按纪律不报）。'}</div>`;
+  }
+  for (const f of findings) {
+    const sev = SEVCN[f.severity] || SEVCN.low;
+    const card = document.createElement('div');
+    card.className = 'finding';
+    const evIds = f.evidence || [];
+    card.innerHTML = `
+      <div class="finding-head">
+        <span class="sev ${sev[0]}">${sev[1]}</span>
+        <span class="t">${esc(f.title)}</span>
+        <span class="ev">证据 ${evIds.map(id => '#' + esc(id)).join(' · ') || '无'}</span>
+      </div>
+      <div class="finding-body">
+        <p class="why">${esc(f.rationale)}</p>
+        ${evIds.map(id => evidenceHtml(id)).join('')}
+      </div>`;
+    card.querySelector('.finding-head').onclick = () => card.classList.toggle('open');
+    // 点击证据 id 展开对应流量详情
+    card.querySelectorAll('[data-ev-id]').forEach(el => {
+      el.onclick = e => {
+        e.stopPropagation();
+        const detail = el.nextElementSibling;
+        if (detail) detail.style.display = detail.style.display === 'block' ? 'none' : 'block';
+      };
+    });
+    box.appendChild(card);
+  }
+
+  // 丢弃区
+  const disc = $('discarded');
+  const items = report && report.verdict ? report.verdict.discarded : [];
+  if (items.length) {
+    disc.style.display = 'block';
+    disc.innerHTML = '<b>已丢弃的信号（现象 ≠ 结果）：</b>' +
+      items.map(d => `<div class="item">${esc(d.title)} —— ${esc(d.reason)}</div>`).join('');
+  } else {
+    disc.style.display = 'none';
+  }
+
+  go('report');
+}
+
+function evidenceHtml(id) {
+  const f = flows.get(id);
+  const head = `<div class="lbl" style="cursor:pointer" data-ev-id="${esc(id)}">证据请求 · #${esc(id)}（点击展开流量详情）</div>`;
+  if (!f) {
+    return `<div class="evidence-pair">${head}
+      <pre style="display:none">本次会话无该请求的流量记录</pre></div>`;
+  }
+  const detail = `<pre style="display:none">${esc(f.method || '')} ${esc(f.url || '')}${f.blocked ? '\n[拦截] ' + esc(f.block_reason || '') : ''}${f.req_body ? '\n\n--- 请求体 ---\n' + esc(f.req_body) : ''}${f.resp_body ? '\n\n--- 响应体 ---\n' + esc(f.resp_body) : ''}</pre>`;
+  return `<div class="evidence-pair">${head}${detail}</div>`;
+}
+</script>
+</body>
+</html>
