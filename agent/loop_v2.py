@@ -83,7 +83,7 @@ async def run_agent_v2(
                     )
                 )
                 messages.append(
-                    {"role": "tool", "tool_call_id": cid, "content": events[-1].result}
+                    {"role": "tool", "tool_call_id": cid, "content": (events[-1].result or "")[:8192]}
                 )
                 if current is not None:
                     current.steps_used += 1
@@ -196,10 +196,15 @@ async def run_agent_v2(
             "content": "步数预算已耗尽。请立即调用 submit_report 提交你当前已有的全部发现（可为空列表，但必须提交）。",
         }
     )
-    try:
-        resp = await llm.complete(messages, tools=[REPORT_TOOL])
-    except LLMError:
-        return None, events, "llm_error"
+    resp = None
+    for attempt in range(2):
+        try:
+            resp = await llm.complete(messages, tools=[REPORT_TOOL])
+            break
+        except LLMError:
+            if attempt == 1:
+                return None, events, "llm_error"
+            await asyncio.sleep(5)
     if resp.tool_calls and resp.tool_calls[0]["name"] == "submit_report":
         try:
             verdict = Verdict.model_validate(resp.tool_calls[0]["arguments"])

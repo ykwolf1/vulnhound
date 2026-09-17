@@ -1,6 +1,9 @@
 """DeepSeek LLM 客户端（OpenAI 兼容 /chat/completions，原生 tool calling）。"""
 
 import asyncio
+import logging
+
+logger = logging.getLogger("svh.llm")
 import json
 from dataclasses import dataclass, field
 
@@ -67,8 +70,10 @@ class DeepSeekLLM:
                 if resp.status_code == 429 or resp.status_code >= 500:
                     last_exc = LLMError(f"http {resp.status_code}: {resp.text[:200]}")
                     continue
+                logger.error("LLM http %s: %s", resp.status_code, resp.text[:200])
                 raise LLMError(f"http {resp.status_code}: {resp.text[:200]}")
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last_exc = LLMError(f"transport: {exc}")
                 continue
+        logger.error("LLM call failed after retries: %s", last_exc)
         raise LLMError(f"llm call failed after retries: {last_exc}")

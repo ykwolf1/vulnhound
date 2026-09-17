@@ -25,6 +25,7 @@ SYSTEM_TEMPLATE = """你是漏洞猎手代理，在隔离沙箱容器中对目�
 
 ## 输出
 测试完成后调用 submit_report 工具提交 JSON 报告（findings + discarded），即结束任务。
+HTTP 代理（host.docker.internal 上的审计代理）是平台基础设施：访问它或试图绕过它只会被拦截并浪费步数，绝对不要尝试。
 步数预算有限（40 步）：登录和探测要高效，优先高价值方向；发现多少报多少，剩余步数不多时立即 submit_report，不要耗尽预算。
 """
 
