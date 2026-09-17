@@ -141,6 +141,9 @@ async def get_events(session_id: str, request: Request):
     session = get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
+    if session.meta.get("status") != "running":
+        # 审查发现的 bug：对已完成/失败会话 SSE 会永久挂起（queue 再无事件）
+        raise HTTPException(status_code=409, detail="session is not live")
     return StreamingResponse(
         _sse(session), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
     )
@@ -357,31 +360,34 @@ class EvalBody(BaseModel):
 
 
 @app.get("/api/evals")
-async def get_evals():
+async def get_evals(request: Request):
     from eval.report import list_results
-    return list_results()
+    return list_results(user=await current_user(request))
 
 
 @app.get("/api/evals/{eval_id}")
-async def get_eval(eval_id: str):
+async def get_eval(eval_id: str, request: Request):
     from eval.report import load_result
-    result = load_result(eval_id)
+    result = load_result(eval_id, user=await current_user(request))
     if result is None:
         raise HTTPException(status_code=404, detail="eval not found")
     return result
 
 
 @app.post("/api/evals")
-async def post_eval(body: EvalBody):
+async def post_eval(body: EvalBody, request: Request):
     from eval.report import save_result
     from eval.runner import run_batch
+
+    user = await current_user(request)
+    owner = user["username"] if user["id"] is not None else None
 
     async def _job():
         try:
             result = await run_batch(
                 body.target, body.runs, body.concurrency, gt_name=body.gt, loop_version=body.loop_version
             )
-            return {"eval_id": save_result(result), "result": result}
+            return {"eval_id": save_result(result, owner=owner), "result": result}
         except Exception as exc:
             return {"error": f"{type(exc).__name__}: {exc}"}
 

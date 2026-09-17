@@ -168,3 +168,39 @@ class _FakeSess:
     def __init__(self, sid):
         self.session_id = sid
         self.meta = {"address": "http://x", "status": "completed", "loop_version": "v2", "created_at": "t"}
+
+
+async def test_sse_not_live_returns_409(auth_env, tmp_path, monkeypatch):
+    """审查修复回归：已完成会话的 SSE 返回 409 而不是永久挂起。"""
+    srv, store = auth_env
+    store.register("a", "secret1")
+    import server.sessions as sess
+    monkeypatch.setattr(sess, "SESSIONS_DIR", tmp_path / "s")
+    d = tmp_path / "s" / "done-1"; d.mkdir(parents=True)
+    (d / "meta.json").write_text(json.dumps({"id": "done-1", "address": "x", "status": "completed"}))
+    (d / "events.jsonl").touch()
+    monkeypatch.setattr(srv, "get", sess.get)
+    async with client(srv) as c:
+        await c.post("/api/auth/login", json={"username": "a", "password": "secret1"})
+        r = await c.get("/api/sessions/done-1/events")
+        assert r.status_code == 409
+
+
+async def test_eval_ownership_filter(auth_env, tmp_path, monkeypatch):
+    """审查修复回归：评测结果按归属过滤，普通用户看不到别人的。"""
+    srv, store = auth_env
+    store.register("a", "secret1")
+    store.register("b", "secret2")
+    import eval.report as rep
+    monkeypatch.setattr(rep, "RESULTS_DIR", tmp_path / "res")
+    # 无归属（legacy）+ alice 的结果
+    ok = {"gt": "dvwa", "target": "t", "runs": 1, "concurrency": 1, "sessions": [],
+          "summary": {"completed": 1, "success_rate": 1.0, "avg_elapsed_s": 1.0,
+                      "avg_precision": 1.0, "avg_recall": 1.0, "avg_evidence_validity": 1.0}}
+    rep.save_result(dict(ok), results_dir=tmp_path / "res")
+    rep.save_result(dict(ok), results_dir=tmp_path / "res", owner="alice")
+    async with client(srv) as c:
+        await c.post("/api/auth/login", json={"username": "a", "password": "secret1"})  # admin
+        assert len((await c.get("/api/evals")).json()) == 2
+        await c.post("/api/auth/login", json={"username": "b", "password": "secret2"})  # user
+        assert (await c.get("/api/evals")).json() == []

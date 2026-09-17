@@ -1,6 +1,7 @@
 """报告聚合：JSON + Markdown。"""
 
 import json
+import secrets
 import time
 from pathlib import Path
 
@@ -9,10 +10,12 @@ __all__ = ["save_result", "render_markdown", "list_results", "load_result"]
 RESULTS_DIR = Path(__file__).parent / "results"
 
 
-def save_result(result: dict, results_dir: Path | None = None) -> str:
+def save_result(result: dict, results_dir: Path | None = None, owner: str | None = None) -> str:
     d = results_dir or RESULTS_DIR
     d.mkdir(parents=True, exist_ok=True)
-    eid = time.strftime("%Y%m%d%H%M%S") + "-" + result.get("gt", "x")
+    if owner:
+        result["owner"] = owner
+    eid = time.strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(2) + "-" + result.get("gt", "x")  # token_hex 防同秒覆盖
     (d / f"{eid}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     (d / f"{eid}.md").write_text(render_markdown(result), encoding="utf-8")
     return eid
@@ -49,19 +52,27 @@ def render_markdown(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def list_results(results_dir: Path | None = None) -> list[dict]:
+def list_results(results_dir: Path | None = None, user: dict | None = None) -> list[dict]:
+    """user 传入时按 V5 归属过滤：admin 全量；普通用户只看自己的（无归属的旧结果仅 admin 可见）。"""
     d = results_dir or RESULTS_DIR
     if not d.exists():
         return []
+    is_admin = user is None or user.get("role") == "admin"
     out = []
     for p in sorted(d.glob("*.json"), reverse=True):
         data = json.loads(p.read_text(encoding="utf-8"))
-        out.append({"eval_id": p.stem, "target": data["target"], "runs": data["runs"], "summary": data["summary"]})
+        if not is_admin and data.get("owner") != user.get("username"):
+            continue
+        out.append({"eval_id": p.stem, "target": data["target"], "runs": data["runs"],
+                    "owner": data.get("owner", "legacy"), "summary": data["summary"]})
     return out
 
 
-def load_result(eval_id: str, results_dir: Path | None = None) -> dict | None:
+def load_result(eval_id: str, results_dir: Path | None = None, user: dict | None = None) -> dict | None:
     p = (results_dir or RESULTS_DIR) / f"{eval_id}.json"
     if not p.exists():
         return None
-    return json.loads(p.read_text(encoding="utf-8"))
+    data = json.loads(p.read_text(encoding="utf-8"))
+    if user is not None and user.get("role") != "admin" and data.get("owner") != user.get("username"):
+        return None
+    return data

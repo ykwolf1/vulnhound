@@ -216,12 +216,18 @@ async def run_agent_v2(
             break
         except LLMError as exc:
             if attempt == 0:
-                # P3 兜底：长对话请求偶发失败时不放弃整场——截断历史（system + 首条 + 最近 12 条）再试
+                # P3 兜底：长对话请求偶发失败时不放弃整场——截断历史（system + 首条 + 最近 12 条）再试。
+                # 审查修正：截断只用于本次 LLM 调用，不覆盖 messages，训练数据保持完整。
                 logger.warning("forced-report LLMError (%s): retrying with truncated history", exc.kind)
                 system, rest = messages[0], messages[1:]
-                messages = [system, *rest] if len(rest) <= 12 else [system, *rest[:1], {"role": "user", "content": f"（中间过程已省略，共 {len(rest) - 1} 条）"}, *rest[-11:]]
-                continue
-            logger.warning("forced-report LLMError after truncation (%s)", exc.kind)
+                truncated = [system] if len(rest) <= 12 else [system, *rest[:1], {"role": "user", "content": f"（中间过程已省略，共 {len(rest) - 1} 条）"}, *rest[-11:]]
+                try:
+                    resp = await llm.complete(truncated, tools=[REPORT_TOOL])
+                except LLMError as exc2:
+                    logger.warning("forced-report LLMError after truncation (%s)", exc2.kind)
+                    return None, events, f"llm_error:{exc2.kind}", messages
+                break
+            logger.warning("forced-report LLMError (%s)", exc.kind)
             return None, events, f"llm_error:{exc.kind}", messages
     if resp.tool_calls and resp.tool_calls[0]["name"] == "submit_report":
         try:

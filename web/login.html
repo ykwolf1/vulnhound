@@ -53,17 +53,7 @@ html,body { background:var(--bg-page); color:var(--text-primary); font-family:va
 <script>
 const $ = id => document.getElementById(id);
 let mode = 'login';
-$('switchLink').onclick = () => {
-  mode = mode === 'login' ? 'register' : 'login';
-  $('btn').textContent = mode === 'login' ? '登录' : '注册并登录';
-  $('switchLine').innerHTML = mode === 'login'
-    ? '没有账号？<a id="switchLink">注册一个</a>'
-    : '已有账号？<a id="switchLink">去登录</a>';
-  $('switchLink').onclick = arguments.callee ? null : null;
-  bindSwitch();
-};
-function bindSwitch() { $('switchLink').onclick = () => $('switchLink').dispatchEvent(new Event('noop')); }
-// 简化：直接重绑
+// 委托监听：innerHTML 替换后无需重绑
 $('switchLine').addEventListener('click', e => {
   if (e.target.id !== 'switchLink') return;
   mode = mode === 'login' ? 'register' : 'login';
