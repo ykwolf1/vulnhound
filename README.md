@@ -133,6 +133,7 @@ Web 评测页：`http://127.0.0.1:8900/eval.html`——历史评测列表、单�
 - 首个注册用户自动成为 admin；普通用户只能访问自己的会话与评测，admin 全量可见；旧会话（无归属记录）仅 admin 可见。
 - 存储为 SQLite（`vulnhound.db`，标准库 sqlite3）：users + session_owners 两张表，会话文件目录结构不变。
 - 密码哈希用标准库 `hashlib.scrypt`，无第三方依赖。
+- **商业化功能**：`POST /api/me/token` 签发个人 API Token（脚本/CI 以 `Authorization: Bearer vht_...` 接入）；每日会话配额（`QUOTA_DAILY` 环境变量默认 20，admin 不限，`POST /api/admin/quota` 按用户调整）；`GET /api/audit`（仅 admin）全量会话归属审计，支持 `?format=csv` 导出；`GET /api/admin/users` 用户管理。
 
 ## 已知边界（MVP）
 

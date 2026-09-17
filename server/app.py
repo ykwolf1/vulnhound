@@ -39,6 +39,13 @@ async def current_user(request) -> dict:
         return LOCAL_USER
     token = request.cookies.get("vh_token")
     if not token:
+        # V5 商业化：脚本/CI 用 Authorization: Bearer <api token>
+        authz = request.headers.get("Authorization", "")
+        if authz.startswith("Bearer vht_"):
+            user = _store().verify_api_token(authz[7:])
+            if user is not None:
+                return user
+            raise HTTPException(status_code=401, detail="invalid api token")
         raise HTTPException(status_code=401, detail="not authenticated")
     user = _store().verify_token(token)
     if user is None:
@@ -105,9 +112,14 @@ async def post_session(body: CreateBody, request: Request):
         session_id = await create_session(body.address, body.auth, body.loop_version)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    user = await current_user(request)
+    # V5 商业化：每日配额（admin 不限）
+    quota = _store().quota_daily(user["id"])
+    if _store().used_today(user["id"]) >= quota:
+        raise HTTPException(status_code=429, detail=f"daily session quota exceeded ({quota})")
     session = get(session_id)
     assert session is not None
-    _store().record_session(session_id, (await current_user(request))["id"], body.address)
+    _store().record_session(session_id, user["id"], body.address)
     asyncio.create_task(session.run())
     return {"session_id": session_id}
 
@@ -263,6 +275,72 @@ async def get_export(session_id: str, format: str, request: Request):
         media_type="text/html; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{sid}.html"'},
     )
+
+
+# ---- V5 商业化：API Token / 审计 / 用户管理 ----
+
+@app.post("/api/me/token")
+async def post_token(request: Request):
+    """签发（或重置）个人 API Token——明文仅返回一次。"""
+    user = await current_user(request)
+    if user["id"] is None:
+        raise HTTPException(status_code=422, detail="local 模式无 API Token")
+    return {"token": _store().issue_api_token(user["id"])}
+
+
+@app.get("/api/audit")
+async def get_audit(request: Request, format: str = "json"):
+    """审计日志：全量会话归属与状态（仅 admin），支持 json|csv 导出。"""
+    user = await current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="admin only")
+    rows = []
+    for sid in _store().owned_sessions(user):
+        sess = get(sid)
+        if sess is None:
+            continue
+        rows.append({
+            "session_id": sid,
+            "owner": _store().owner_username(sid),
+            "address": sess.meta.get("address"),
+            "status": sess.meta.get("status"),
+            "loop_version": sess.meta.get("loop_version"),
+            "created_at": sess.meta.get("created_at"),
+        })
+    if format == "csv":
+        import csv as _csv
+        import io as _io
+        buf = _io.StringIO()
+        w = _csv.DictWriter(buf, fieldnames=list(rows[0].keys()) if rows else ["session_id", "owner", "address", "status", "loop_version", "created_at"])
+        w.writeheader()
+        w.writerows(rows)
+        return Response(buf.getvalue(), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": "attachment; filename=audit.csv"})
+    return rows
+
+
+@app.get("/api/admin/users")
+async def get_users(request: Request):
+    user = await current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="admin only")
+    return _store().all_users()
+
+
+class QuotaBody(BaseModel):
+    user_id: int
+    quota_daily: int
+
+
+@app.post("/api/admin/quota")
+async def post_quota(body: QuotaBody, request: Request):
+    user = await current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="admin only")
+    if body.quota_daily < 0:
+        raise HTTPException(status_code=422, detail="quota must be >= 0")
+    _store().set_quota(body.user_id, body.quota_daily)
+    return {"ok": True}
 
 
 # ---- V4：评测 ----

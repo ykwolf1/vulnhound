@@ -66,6 +66,12 @@ class AuthStore:
             "role TEXT NOT NULL DEFAULT 'user',"
             "created_at TEXT NOT NULL)"
         )
+        # V5 商业化：api_token_hash（sha256）、quota_daily（每日会话配额，NULL=默认）
+        for col, ddl in [("api_token_hash", "TEXT"), ("quota_daily", "INTEGER")]:
+            cols = [r[1] for r in self._conn.execute("PRAGMA table_info(users)").fetchall()]
+            if col not in cols:
+                self._conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+        self._conn.commit()
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS session_owners ("
             "session_id TEXT PRIMARY KEY,"
@@ -124,6 +130,58 @@ class AuthStore:
         except (ValueError, TypeError):
             return None
 
+    # ---- API Token（V5 商业化：脚本/CI 接入）----
+
+    def issue_api_token(self, user_id: int) -> str:
+        """生成随机 token，存 sha256 哈希，返回明文（仅此一次可见）。"""
+        token = f"vht_{user_id}_{secrets.token_urlsafe(24)}"
+        h = hashlib.sha256(token.encode()).hexdigest()
+        self._conn.execute("UPDATE users SET api_token_hash = ? WHERE id = ?", (h, user_id))
+        self._conn.commit()
+        return token
+
+    def verify_api_token(self, token: str) -> dict | None:
+        h = hashlib.sha256(token.encode()).hexdigest()
+        row = self._conn.execute(
+            "SELECT id, username, role FROM users WHERE api_token_hash = ?", (h,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {"id": row[0], "username": row[1], "role": row[2]}
+
+    # ---- 配额（V5 商业化）----
+
+    def quota_daily(self, user_id: int | None) -> int:
+        """用户每日会话配额：个人设置优先，否则环境变量默认。admin 不限。"""
+        if user_id is None:
+            return 10**9
+        row = self._conn.execute(
+            "SELECT role, quota_daily FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if row is None or row[0] == "admin":
+            return 10**9
+        if row[1] is not None:
+            return row[1]
+        return int(os.environ.get("QUOTA_DAILY", "20"))
+
+    def used_today(self, user_id: int) -> int:
+        today = time.strftime("%Y-%m-%d")
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM session_owners WHERE owner_id = ? AND created_at LIKE ?",
+            (user_id, today + "%"),
+        ).fetchone()
+        return row[0]
+
+    def set_quota(self, user_id: int, quota: int) -> None:
+        self._conn.execute("UPDATE users SET quota_daily = ? WHERE id = ?", (quota, user_id))
+        self._conn.commit()
+
+    def all_users(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, username, role, quota_daily, created_at FROM users ORDER BY id"
+        ).fetchall()
+        return [{"id": r[0], "username": r[1], "role": r[2], "quota_daily": r[3], "created_at": r[4]} for r in rows]
+
     # ---- session ownership ----
 
     def record_session(self, session_id: str, owner_id: int | None, address: str) -> None:
@@ -143,6 +201,13 @@ class AuthStore:
         if row is None:  # 旧数据无归属
             return False
         return row[0] == user.get("id")
+
+    def owner_username(self, session_id: str) -> str:
+        row = self._conn.execute(
+            "SELECT u.username FROM session_owners o JOIN users u ON o.owner_id = u.id WHERE o.session_id = ?",
+            (session_id,),
+        ).fetchone()
+        return row[0] if row else "legacy"
 
     def owned_sessions(self, user: dict) -> list[str]:
         if user.get("role") == "admin":

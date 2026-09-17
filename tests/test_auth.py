@@ -107,3 +107,64 @@ async def test_password_hashing(auth_env):
     assert auth._verify_password("secret1", h)
     assert not auth._verify_password("secret2", h)
     assert not auth._verify_password("x", "garbage")
+
+
+async def test_api_token_flow(auth_env):
+    """V5 商业化：API Token 签发 → Bearer 接入。"""
+    srv, store = auth_env
+    store.register("alice", "secret1")
+    alice = store.verify("alice", "secret1")
+    token = store.issue_api_token(alice["id"])
+    assert token.startswith("vht_1_")
+    assert store.verify_api_token(token)["username"] == "alice"
+    assert store.verify_api_token("vht_1_wrong") is None
+
+    async with client(srv) as c:
+        r = await c.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200 and r.json()["username"] == "alice"
+        r = await c.get("/api/me", headers={"Authorization": "Bearer vht_1_forged"})
+        assert r.status_code == 401
+
+
+async def test_quota_and_audit(auth_env, tmp_path, monkeypatch):
+    srv, store = auth_env
+    alice = store.register("alice", "secret1")   # admin（首个）
+    bob_u = store.register("bob", "secret2")
+    bob = store.verify("bob", "secret2")
+    # bob 配额设为 2
+    store.set_quota(bob["id"], 2)
+    for i in range(2):
+        store.record_session(f"s{i}", bob["id"], "http://x")
+    assert store.used_today(bob["id"]) == 2
+
+    import server.app as srvmod
+    # 造真实目录供 audit 读取
+    monkeypatch.setattr(srvmod, "get", lambda sid: _FakeSess(sid) if sid.startswith("s") else None)
+
+    async with client(srv) as c:
+        await c.post("/api/auth/login", json={"username": "bob", "password": "secret2"})
+        # token 签发端点
+        r = await c.post("/api/me/token")
+        assert r.status_code == 200 and r.json()["token"].startswith("vht_")
+        # admin 端点：bob 应 403
+        r = await c.get("/api/audit")
+        assert r.status_code == 403
+        # alice admin：audit 列表 + csv
+        await c.post("/api/auth/login", json={"username": "alice", "password": "secret1"})
+        r = await c.get("/api/audit")
+        assert r.status_code == 200 and len(r.json()) >= 2
+        r = await c.get("/api/audit", params={"format": "csv"})
+        assert r.status_code == 200 and "session_id,owner" in r.text
+        # 用户管理 + 配额调整
+        r = await c.get("/api/admin/users")
+        users = r.json()
+        bob_id = next(u["id"] for u in users if u["username"] == "bob")
+        r = await c.post("/api/admin/quota", json={"user_id": bob_id, "quota_daily": 5})
+        assert r.status_code == 200
+        assert store.quota_daily(bob_id) == 5
+
+
+class _FakeSess:
+    def __init__(self, sid):
+        self.session_id = sid
+        self.meta = {"address": "http://x", "status": "completed", "loop_version": "v2", "created_at": "t"}
