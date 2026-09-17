@@ -5,6 +5,13 @@ cd "$(dirname "$0")"
 
 PORT="${PORT:-8900}"
 
+# 可选：--with-target 同时起 DVWA 靶场（deploy/docker-compose.yml）
+if [ "${1:-}" = "--with-target" ]; then
+  echo "==> 启动 DVWA 靶场（docker compose）"
+  docker compose -f deploy/docker-compose.yml up -d dvwa
+  echo "    DVWA: http://127.0.0.1:8080 （首次进入 /setup.php 完成 setup）"
+fi
+
 # 1) venv + 依赖
 if [ ! -d .venv ]; then
   echo "==> 创建虚拟环境 .venv"

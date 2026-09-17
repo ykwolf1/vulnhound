@@ -29,8 +29,17 @@
 
 ```sh
 export LLM_API_KEY=sk-...
-./start.sh          # 默认 8900 端口，可用 PORT= 覆盖
+./start.sh                # 默认 8900 端口，可用 PORT= 覆盖
+./start.sh --with-target  # 同时用 docker compose 起 DVWA 靶场
 ```
+
+**Linux 服务器整包容器化**（可选，`deploy/`）：
+
+```sh
+cd deploy && LLM_API_KEY=sk-... docker compose --profile app up -d
+```
+
+app 容器用 host 网络 + 挂载 docker.sock 在宿主 docker 里起沙箱；macOS 不支持 host 网络，请用上面的宿主机方式。
 
 手动步骤：
 
