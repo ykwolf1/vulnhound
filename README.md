@@ -25,6 +25,15 @@
 
 ## 快速开始
 
+最快路径（自动建 venv、装依赖、构建 `vh-agent` 镜像并起服务）：
+
+```sh
+export LLM_API_KEY=sk-...
+./start.sh          # 默认 8900 端口，可用 PORT= 覆盖
+```
+
+手动步骤：
+
 1. 起 DVWA 靶场（首次进入 `http://127.0.0.1:8080/setup.php` 完成 setup）：
 
    ```sh
