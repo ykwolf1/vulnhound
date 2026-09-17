@@ -88,6 +88,15 @@ sessions/ 会话目录：meta.json / events.jsonl / proxy.jsonl / report.json
 
 V2 在原单层 ReAct 之上增加方向管理层（外层）：模型可通过 `switch_direction` 工具在多个测试方向间切换，每个方向内部仍是假设驱动的 observe→act→verify 循环。创建会话时用 `loop_version` 参数选择（`"v1"` 单层 / `"v2"` 双层，默认 v2）。预算：单方向 15 步（耗尽提醒切换）、总步数 100 步、总时长 20 分钟，触顶强制出报告（`stopped_reason=step_cap` / `time_cap`）。
 
+## V3：可解释增强
+
+只做数据之上的视图，agent 核心不变（详见 `docs/spec-v3.md`）：
+
+- **步进回放**：报告页可切回完整决策时间轴逐步审查（模型每步的命令、结果、全量代理流量）。
+- **请求重放**：报告证据区可对任意 `request_id` 一键重放（仅限会话目标白名单），展示新旧状态码/响应体 diff；重放不写审计留痕。
+- **独立导出**（不打包）：HTML 文字版报告 / SARIF 2.1.0 / OpenAI messages JSONL（训练数据），报告页逐项下载。
+- 会话结束自动落盘 `messages.jsonl`（完整对话，训练/微调燃料）。
+
 ## 已知边界（MVP）
 
 - 会话为内存态实例缓存：服务重启后旧会话的报告可读，但事件流/SSE 不可恢复
