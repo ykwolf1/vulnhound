@@ -186,6 +186,7 @@ details.dir-group .step { margin-left:var(--s3); }
   <div class="sep"></div>
   <span style="font-size:12px;color:var(--gray-500)">AI 安全测试</span>
   <span class="stage" id="stage"></span>
+<span class="userbox" id="userBox" style="margin-left:auto;display:none;align-items:center;gap:10px;font-size:13px;color:var(--gray-600)"><span id="userName"></span><a href="#" id="logoutBtn" style="color:var(--gray-500);text-decoration:none">退出</a></span>
 </header>
 
 <!-- ================= 态 1：输入 ================= -->
@@ -254,6 +255,20 @@ details.dir-group .step { margin-left:var(--s3); }
 </section>
 
 <script>
+/* V5：认证用户区 */
+(async () => {
+  try {
+    const me = await (await fetch('/api/me')).json();
+    if (me.username && me.username !== 'local') {
+      $('userBox').style.display = 'inline-flex';
+      $('userName').textContent = me.username;
+      $('logoutBtn').onclick = async e => { e.preventDefault(); await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; };
+    } else if (me.username === 'local') {
+      // AUTH_ENABLED=0：不带用户区
+    }
+  } catch { /* 401：开启认证时前端静态页无法强跳（服务端不拦静态页），由用户自行访问登录页 */ }
+})();
+
 /* ===================== 通用 ===================== */
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g,

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vulnhound · 登录</title>
+<style>
+:root {
+  --brand-500:#2f66f5; --brand-600:#1f4ee0; --brand-50:#eef4ff; --brand-100:#d9e6ff;
+  --gray-500:#6b7280; --gray-600:#4b5563;
+  --bg-page:#f6f7f9; --bg-surface:#ffffff; --text-primary:#1a1a1a;
+  --border-default:#e5e7eb; --red-500:#ef4444;
+  --r-md:6px; --r-lg:8px; --s3:12px; --s4:16px; --s6:24px;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.05);
+  --font-ui:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { background:var(--bg-page); color:var(--text-primary); font-family:var(--font-ui); font-size:14px; line-height:1.5; }
+.login { max-width:380px; margin:14vh auto 0; }
+.login h1 { display:flex; align-items:center; gap:8px; font-size:24px; font-weight:600; margin-bottom:6px; }
+.login h1 svg { color:var(--brand-500); }
+.login p.sub { color:var(--gray-500); margin-bottom:24px; }
+.card { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg);
+  padding:var(--s6); box-shadow:var(--shadow-sm); }
+.field label { display:block; font-size:13px; font-weight:500; color:var(--gray-600); margin-bottom:6px; }
+.field input { width:100%; height:40px; padding:0 12px; border:1px solid var(--border-default);
+  border-radius:var(--r-md); font-size:14px; background:var(--bg-surface); }
+.field input:focus { outline:none; border-color:var(--brand-500); box-shadow:0 0 0 3px var(--brand-100); }
+.btn { margin-top:20px; width:100%; height:44px; background:var(--brand-500); color:#fff;
+  border:none; border-radius:var(--r-md); font:inherit; font-weight:500; font-size:15px; cursor:pointer; }
+.btn:hover { background:var(--brand-600); }
+.btn:disabled { opacity:.6; cursor:default; }
+.error { margin-top:12px; font-size:13px; color:var(--red-500); display:none; }
+.switch { margin-top:16px; font-size:13px; color:var(--gray-500); text-align:center; }
+.switch a { color:var(--brand-500); cursor:pointer; text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="login">
+  <h1>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    vulnhound
+  </h1>
+  <p class="sub">AI 安全测试 · 团队内部使用</p>
+  <div class="card">
+    <div class="field"><label>用户名</label><input id="user" spellcheck="false" autocomplete="username"></div>
+    <div class="field" style="margin-top:14px"><label>密码</label><input id="pass" type="password" autocomplete="current-password"></div>
+    <button class="btn" id="btn">登录</button>
+    <p class="error" id="err"></p>
+    <p class="switch" id="switchLine">没有账号？<a id="switchLink">注册一个</a></p>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let mode = 'login';
+$('switchLink').onclick = () => {
+  mode = mode === 'login' ? 'register' : 'login';
+  $('btn').textContent = mode === 'login' ? '登录' : '注册并登录';
+  $('switchLine').innerHTML = mode === 'login'
+    ? '没有账号？<a id="switchLink">注册一个</a>'
+    : '已有账号？<a id="switchLink">去登录</a>';
+  $('switchLink').onclick = arguments.callee ? null : null;
+  bindSwitch();
+};
+function bindSwitch() { $('switchLink').onclick = () => $('switchLink').dispatchEvent(new Event('noop')); }
+// 简化：直接重绑
+$('switchLine').addEventListener('click', e => {
+  if (e.target.id !== 'switchLink') return;
+  mode = mode === 'login' ? 'register' : 'login';
+  $('btn').textContent = mode === 'login' ? '登录' : '注册并登录';
+  $('switchLine').innerHTML = mode === 'login'
+    ? '没有账号？<a id="switchLink" style="color:var(--brand-500);cursor:pointer">注册一个</a>'
+    : '已有账号？<a id="switchLink" style="color:var(--brand-500);cursor:pointer">去登录</a>';
+});
+$('btn').onclick = async () => {
+  const err = $('err'); err.style.display = 'none';
+  $('btn').disabled = true;
+  try {
+    const res = await fetch(`/api/auth/${mode}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: $('user').value.trim(), password: $('pass').value }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`); }
+    location.href = '/';
+  } catch (e) { err.textContent = (mode === 'register' ? '注册失败：' : '登录失败：') + e.message; err.style.display = 'block'; }
+  finally { $('btn').disabled = false; }
+};
+$('pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn').click(); });
+</script>
+</body>
+</html>

@@ -117,6 +117,13 @@ Web 评测页：`http://127.0.0.1:8900/eval.html`——历史评测列表、单�
 
 问题记录与迭代依据见 `docs/issues.md`（三轮评测对照 + P1-P2b 修复脉络）。
 
+## V5：多用户与权限（小团队内部）
+
+- `AUTH_ENABLED=1` 开启认证（默认关闭，关闭时行为与 V4 一致）：注册/登录（`web/login.html`）、HttpOnly HMAC token cookie（7 天）、`SECRET_KEY` 签名密钥。
+- 首个注册用户自动成为 admin；普通用户只能访问自己的会话与评测，admin 全量可见；旧会话（无归属记录）仅 admin 可见。
+- 存储为 SQLite（`vulnhound.db`，标准库 sqlite3）：users + session_owners 两张表，会话文件目录结构不变。
+- 密码哈希用标准库 `hashlib.scrypt`，无第三方依赖。
+
 ## 已知边界（MVP）
 
 - 会话为内存态实例缓存：服务重启后旧会话的报告可读，但事件流/SSE 不可恢复

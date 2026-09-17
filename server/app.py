@@ -6,15 +6,89 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from server.auth import LOCAL_USER, AuthStore, auth_enabled
 from server.exporters import dump_html, dump_messages, dump_sarif, load_jsonl
 from server.sessions import create_session, get
 
 app = FastAPI(title="vulnhound")
+
+# V5：认证（AUTH_ENABLED=0 时全部请求视为 local 用户，行为同 V4）
+_auth_store: AuthStore | None = None
+
+
+def _store() -> AuthStore:
+    global _auth_store
+    if _auth_store is None:
+        _auth_store = AuthStore()
+    return _auth_store
+
+
+def _require_auth():
+    if not auth_enabled():
+        return None
+
+
+async def current_user(request) -> dict:
+    """从 cookie 解析当前用户；认证未开启时返回 local。"""
+    if not auth_enabled():
+        return LOCAL_USER
+    token = request.cookies.get("vh_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    user = _store().verify_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+    return user
+
+
+def _check_owner(session_id: str, user: dict) -> None:
+    """归属校验：无权限与不存在同响应 404，避免探测。"""
+    if auth_enabled() and not _store().can_access(session_id, user):
+        raise HTTPException(status_code=404, detail="session not found")
+
+
+# ---- V5：认证端点 ----
+
+class AuthBody(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/register")
+async def post_register(body: AuthBody):
+    try:
+        user = _store().register(body.username, body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return user
+
+
+@app.post("/api/auth/login")
+async def post_login(body: AuthBody, response: Response):
+    user = _store().verify(body.username, body.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    response.set_cookie(
+        "vh_token", _store().issue_token(user),
+        httponly=True, samesite="lax", max_age=7 * 24 * 3600,
+    )
+    return {"username": user["username"], "role": user["role"]}
+
+
+@app.post("/api/auth/logout")
+async def post_logout(response: Response):
+    response.delete_cookie("vh_token")
+    return {"ok": True}
+
+
+@app.get("/api/me")
+async def get_me(request: Request):
+    return await current_user(request)
 
 
 class CreateBody(BaseModel):
@@ -24,7 +98,7 @@ class CreateBody(BaseModel):
 
 
 @app.post("/api/sessions")
-async def post_session(body: CreateBody):
+async def post_session(body: CreateBody, request: Request):
     if body.loop_version not in ("v1", "v2"):
         raise HTTPException(status_code=422, detail="loop_version must be 'v1' or 'v2'")
     try:
@@ -33,12 +107,15 @@ async def post_session(body: CreateBody):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     session = get(session_id)
     assert session is not None
+    _store().record_session(session_id, (await current_user(request))["id"], body.address)
     asyncio.create_task(session.run())
     return {"session_id": session_id}
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str):
+async def get_session(session_id: str, request: Request):
+    user = await current_user(request)
+    _check_owner(session_id, user)
     session = get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -46,7 +123,9 @@ async def get_session(session_id: str):
 
 
 @app.get("/api/sessions/{session_id}/events")
-async def get_events(session_id: str):
+async def get_events(session_id: str, request: Request):
+    user = await current_user(request)
+    _check_owner(session_id, user)
     session = get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -64,7 +143,9 @@ async def _sse(session):
 
 
 @app.get("/api/sessions/{session_id}/report")
-async def get_report(session_id: str):
+async def get_report(session_id: str, request: Request):
+    user = await current_user(request)
+    _check_owner(session_id, user)
     session = get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -74,7 +155,7 @@ async def get_report(session_id: str):
 
 
 @app.get("/api/sessions/{session_id}/events.jsonl")
-async def get_events_file(session_id: str):
+async def get_events_file(session_id: str, request: Request):
     """V3：完整事件文件（步进审查数据源，区别于 SSE 实时流）。"""
     session = get(session_id)
     if session is None:
@@ -91,8 +172,10 @@ class ReplayBody(BaseModel):
 
 
 @app.post("/api/sessions/{session_id}/replay")
-async def post_replay(session_id: str, body: ReplayBody):
+async def post_replay(session_id: str, body: ReplayBody, request: Request):
     """V3：从 proxy.jsonl 取原始请求重发（不写留痕），返回新旧响应 diff。"""
+    user = await current_user(request)
+    _check_owner(session_id, user)
     session = get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -147,8 +230,10 @@ async def post_replay(session_id: str, body: ReplayBody):
 
 
 @app.get("/api/sessions/{session_id}/export")
-async def get_export(session_id: str, format: str):
+async def get_export(session_id: str, format: str, request: Request):
     """V3：独立单文件导出 messages|sarif|html，不打包。"""
+    user = await current_user(request)
+    _check_owner(session_id, user)
     session = get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
