@@ -67,7 +67,7 @@ async def run_agent(
         try:
             resp = await llm.complete(messages, tools=[EXEC_TOOL, REPORT_TOOL])
         except LLMError:
-            return None, events, "llm_error"
+            return None, events, "llm_error", messages
 
         if not resp.tool_calls:
             messages.append({"role": "assistant", "content": resp.content or ""})
@@ -102,7 +102,7 @@ async def run_agent(
                 )
                 # 无进展检测
                 if progress.update(cmd, stdout):
-                    return None, events, "no_progress"
+                    return None, events, "no_progress", messages
 
             elif name == "submit_report":
                 try:
@@ -111,7 +111,7 @@ async def run_agent(
                         raise ValueError("每条 finding 的 evidence 不能为空")
                 except (ValidationError, ValueError) as exc:
                     if report_retried:
-                        return None, events, "llm_error"
+                        return None, events, "llm_error", messages
                     report_retried = True
                     messages.append(
                         {
@@ -122,7 +122,7 @@ async def run_agent(
                     )
                     continue
                 events.append(StepEvent(n=n, tag="conclude", text="submit_report", result=None))
-                return verdict, events, "completed"
+                return verdict, events, "completed", messages
 
             else:
                 messages.append({"role": "tool", "tool_call_id": cid, "content": f"未知工具: {name}"})
@@ -147,13 +147,13 @@ async def run_agent(
     try:
         resp = await llm.complete(messages, tools=[REPORT_TOOL])
     except LLMError:
-        return None, events, "llm_error"
+        return None, events, "llm_error", messages
     if resp.tool_calls and resp.tool_calls[0]["name"] == "submit_report":
         try:
             verdict = Verdict.model_validate(resp.tool_calls[0]["arguments"])
         except ValidationError:
-            return None, events, "llm_error"
+            return None, events, "llm_error", messages
         events.append(StepEvent(n=n + 1, tag="conclude", text="submit_report(forced)", result=None))
-        return verdict, events, "step_cap"  # 诚实标注：靠强制收卷获得的报告
+        return verdict, events, "step_cap", messages  # 诚实标注：靠强制收卷获得的报告
 
-    return None, events, "step_cap"
+    return None, events, "step_cap", messages

@@ -155,6 +155,25 @@ details.dir-group .step { margin-left:var(--s3); }
 .discarded .item { margin-top:var(--s2); }
 .empty-findings { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg);
   padding:var(--s6); font-size:13px; color:var(--text-secondary); }
+
+/* ============ V3：导出 / 回放 ============ */
+.export-row { margin-top:var(--s3); display:flex; gap:var(--s2); flex-wrap:wrap; align-items:center; }
+.btn-ghost { height:30px; padding:0 12px; font:inherit; font-size:12px; color:var(--gray-600);
+  background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-md);
+  cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+.btn-ghost:hover { border-color:var(--action); color:var(--action); }
+.btn-ghost.replay-view { margin-left:auto; }
+.back-report { display:none; height:30px; padding:0 12px; font:inherit; font-size:12px;
+  color:var(--gray-600); background:var(--bg-surface); border:1px solid var(--border-default);
+  border-radius:var(--r-md); cursor:pointer; }
+.replay-btn { margin:6px 12px; height:26px; padding:0 10px; font:inherit; font-size:11px;
+  color:var(--action); background:var(--brand-50); border:1px solid var(--brand-100);
+  border-radius:var(--r-sm); cursor:pointer; }
+.replay-btn:disabled { opacity:.5; cursor:default; }
+.replay-diff { margin:0 12px 10px; font-family:var(--font-mono); font-size:11px; white-space:pre-wrap;
+  word-break:break-all; color:var(--gray-600); background:var(--gray-50);
+  border:1px solid var(--border-subtle); border-radius:var(--r-sm); padding:8px 10px; display:none; }
+.replay-diff .changed { color:var(--red-500); font-weight:500; }
 </style>
 </head>
 <body>
@@ -200,6 +219,7 @@ details.dir-group .step { margin-left:var(--s3); }
     <span class="url" id="liveUrl"></span>
     <span class="badge run"><span class="dot"></span>AI 测试中</span>
     <div class="meter"><span id="mSteps">步数 0</span><span id="mFlows">流量 0 条</span><span id="mDirs">方向 1</span><span id="mTime">00:00</span></div>
+    <button class="back-report" id="backReport">← 返回报告</button>
   </div>
   <div class="live-grid">
     <div class="panel">
@@ -222,6 +242,12 @@ details.dir-group .step { margin-left:var(--s3); }
     </div>
     <div class="meta" id="repMeta"></div>
     <div class="stop-reason" id="stopReason"></div>
+    <div class="export-row">
+      <a class="btn-ghost" id="expHtml" download>⬇ HTML 报告</a>
+      <a class="btn-ghost" id="expSarif" download>⬇ SARIF</a>
+      <a class="btn-ghost" id="expMsgs" download>⬇ 训练数据 (messages JSONL)</a>
+      <button class="btn-ghost replay-view" id="replayView">▶ 步进回放决策过程</button>
+    </div>
   </div>
   <div id="findings"></div>
   <div class="discarded" id="discarded" style="display:none"></div>
@@ -443,6 +469,14 @@ async function loadReport(done) {
         if (detail) detail.style.display = detail.style.display === 'block' ? 'none' : 'block';
       };
     });
+    // V3：请求重放
+    card.querySelectorAll('[data-replay-id]').forEach(btn => {
+      btn.onclick = async e => {
+        e.stopPropagation();
+        const out = card.querySelector(`[data-replay-out="${btn.dataset.replayId}"]`);
+        if (out) { btn.disabled = true; await doReplay(Number(btn.dataset.replayId), out); btn.disabled = false; }
+      };
+    });
     box.appendChild(card);
   }
 
@@ -457,6 +491,13 @@ async function loadReport(done) {
     disc.style.display = 'none';
   }
 
+  // V3：导出链接 + 步进回放切换
+  for (const [id, fmt] of [['expHtml', 'html'], ['expSarif', 'sarif'], ['expMsgs', 'messages']]) {
+    $(id).href = `/api/sessions/${sessionId}/export?format=${fmt}`;
+  }
+  $('replayView').onclick = () => { $('backReport').style.display = 'inline-flex'; go('live'); };
+  $('backReport').onclick = () => go('report');
+
   go('report');
 }
 
@@ -468,7 +509,30 @@ function evidenceHtml(id) {
       <pre style="display:none">本次会话无该请求的流量记录</pre></div>`;
   }
   const detail = `<pre style="display:none">${esc(f.method || '')} ${esc(f.url || '')}${f.blocked ? '\n[拦截] ' + esc(f.block_reason || '') : ''}${f.req_body ? '\n\n--- 请求体 ---\n' + esc(f.req_body) : ''}${f.resp_body ? '\n\n--- 响应体 ---\n' + esc(f.resp_body) : ''}</pre>`;
-  return `<div class="evidence-pair">${head}${detail}</div>`;
+  const replay = f.blocked ? '' :
+    `<button class="replay-btn" data-replay-id="${esc(id)}">⟳ 重放此请求</button>
+     <div class="replay-diff" data-replay-out="${esc(id)}"></div>`;
+  return `<div class="evidence-pair">${head}${detail}${replay}</div>`;
+}
+
+async function doReplay(id, out) {
+  out.style.display = 'block';
+  out.textContent = '重放中…';
+  try {
+    const res = await fetch(`/api/sessions/${sessionId}/replay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request_id: id }),
+    });
+    const d = await res.json();
+    if (!res.ok) { out.textContent = '重放失败：' + (d.detail || res.status); return; }
+    const sc = d.diff.status_changed, bc = d.diff.body_changed;
+    out.innerHTML = `状态：${esc(d.original.status)} → ${esc(d.replayed.status)}${sc ? ' <span class="changed">(变化)</span>' : ''}\n` +
+      `响应体：${bc ? '<span class="changed">已变化</span>' : '一致'}\n` +
+      `--- 重放响应 ---\n${esc((d.replayed.resp_body || '').slice(0, 2000))}`;
+  } catch (e) {
+    out.textContent = '重放失败：' + e.message;
+  }
 }
 </script>
 </body>

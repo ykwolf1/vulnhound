@@ -63,7 +63,7 @@ async def test_normal_completion():
         ]
     )
     sandbox = FakeSandbox({"curl http://target/login.php": "resp [request_id=1]"})
-    verdict, events, reason = await run_agent(llm, sandbox, "http://target", None)
+    verdict, events, reason, _m = await run_agent(llm, sandbox, "http://target", None)
     assert reason == "completed"
     assert verdict is not None
     assert verdict.findings[0].evidence == [1]
@@ -87,7 +87,7 @@ async def test_step_cap_forces_report():
             }]),
         ]
     )
-    verdict, events, reason = await run_agent(llm, FakeSandbox({}), "http://t", None, max_steps=3)
+    verdict, events, reason, _m = await run_agent(llm, FakeSandbox({}), "http://t", None, max_steps=3)
     assert reason == "step_cap"
     assert verdict is not None and verdict.findings == []  # 强制收卷交出空报告
     assert any(e.tag == "conclude" for e in events)
@@ -103,7 +103,7 @@ async def test_step_cap_no_report_in_forced_round():
             LLMResp(content="refuse", tool_calls=[]),  # 收卷轮拒绝
         ]
     )
-    verdict, _events, reason = await run_agent(llm, FakeSandbox({}), "http://t", None, max_steps=3)
+    verdict, _events, reason, _m = await run_agent(llm, FakeSandbox({}), "http://t", None, max_steps=3)
     assert reason == "step_cap"
     assert verdict is None
 
@@ -111,7 +111,7 @@ async def test_step_cap_no_report_in_forced_round():
 async def test_no_progress_on_repeated_cmd():
     llm = FakeLLM([exec_resp("curl http://t/x", f"c{i}") for i in range(3)])
     sandbox = FakeSandbox({"curl http://t/x": ""})  # stdout 为空：只触发 cmd 相同规则
-    verdict, events, reason = await run_agent(llm, sandbox, "http://t", None)
+    verdict, events, reason, _m = await run_agent(llm, sandbox, "http://t", None)
     assert reason == "no_progress"
     assert verdict is None
     assert len(events) == 3
@@ -125,7 +125,7 @@ async def test_no_progress_on_similar_stdout():
         ]
     )
     sandbox = FakeSandbox({"curl http://t/a": "AAAA", "curl http://t/b": "AAAA"})
-    _verdict, _events, reason = await run_agent(llm, sandbox, "http://t", None)
+    _verdict, _events, reason, _m = await run_agent(llm, sandbox, "http://t", None)
     assert reason == "no_progress"
 
 
@@ -136,7 +136,7 @@ async def test_invalid_verdict_twice_llm_error():
             report_resp(INVALID_REPORT, "r2"),
         ]
     )
-    verdict, _events, reason = await run_agent(llm, FakeSandbox({}), "http://t", None)
+    verdict, _events, reason, _m = await run_agent(llm, FakeSandbox({}), "http://t", None)
     assert reason == "llm_error"
     assert verdict is None
 
@@ -148,13 +148,13 @@ async def test_invalid_verdict_then_valid_recovers():
             report_resp(VALID_REPORT, "r2"),
         ]
     )
-    verdict, _events, reason = await run_agent(llm, FakeSandbox({}), "http://t", None)
+    verdict, _events, reason, _m = await run_agent(llm, FakeSandbox({}), "http://t", None)
     assert reason == "completed"
     assert verdict is not None
 
 
 async def test_llm_error_propagates():
     llm = FakeLLM([LLMError("boom")])
-    verdict, _events, reason = await run_agent(llm, FakeSandbox({}), "http://t", None)
+    verdict, _events, reason, _m = await run_agent(llm, FakeSandbox({}), "http://t", None)
     assert reason == "llm_error"
     assert verdict is None

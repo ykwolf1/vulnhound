@@ -80,7 +80,7 @@ async def test_dual_direction_switch_then_submit():
     sandbox = FakeSandbox(
         {"curl http://t/login.php": "resp [request_id=1]", "curl http://t/guestbook.php": "xss [request_id=2]"}
     )
-    verdict, events, reason = await run_agent_v2(llm, sandbox, "http://t", None)
+    verdict, events, reason, _m = await run_agent_v2(llm, sandbox, "http://t", None)
     assert reason == "completed"
     assert verdict is not None and verdict.findings[0].evidence == [1]
     dir_events = [e for e in events if e.tag == "direction"]
@@ -122,7 +122,7 @@ async def test_direction_budget_reminder():
         ]
     )
     sandbox = FakeSandbox({"curl http://t/a": "A [request_id=1]", "curl http://t/b": "B [request_id=2]"})
-    _verdict, _events, reason = await run_agent_v2(
+    _verdict, _events, reason, _m = await run_agent_v2(
         llm, sandbox, "http://t", None, max_steps=10, max_steps_per_direction=1
     )
     assert reason == "completed"
@@ -162,7 +162,7 @@ async def test_no_progress_soft_then_forced_switch_hint():
         ]
     )
     sandbox = FakeSandbox({"curl http://t/x": ""})  # 空 stdout：仅命中重复命令规则
-    verdict, _events, reason = await run_agent_v2(llm, sandbox, "http://t", None)
+    verdict, _events, reason, _m = await run_agent_v2(llm, sandbox, "http://t", None)
     assert reason == "completed"  # v2 不硬切，模型可自纠后提交
     assert verdict is not None
     assert "连续无新信息" in user_texts(llm, 4)[-1]
@@ -182,7 +182,7 @@ async def test_step_cap_direction_summary_and_forced_report():
         ]
     )
     sandbox = FakeSandbox({"curl http://t/a": "A [request_id=1]", "curl http://t/b": "B [request_id=2]"})
-    verdict, events, reason = await run_agent_v2(llm, sandbox, "http://t", None, max_steps=4)
+    verdict, events, reason, _m = await run_agent_v2(llm, sandbox, "http://t", None, max_steps=4)
     assert reason == "step_cap"
     assert verdict is not None and verdict.findings == []
     summary = [e for e in events if e.tag == "direction" and "方向汇总" in e.text]
@@ -194,7 +194,7 @@ async def test_step_cap_direction_summary_and_forced_report():
 async def test_submit_directly_returns_v1_compat():
     """不经过任何方向直接 submit → v1 兼容路径正常返回。"""
     llm = RecordingLLM([report_resp(VALID_REPORT, "r1")])
-    verdict, events, reason = await run_agent_v2(llm, FakeSandbox({}), "http://t", None)
+    verdict, events, reason, _m = await run_agent_v2(llm, FakeSandbox({}), "http://t", None)
     assert reason == "completed"
     assert verdict is not None
     assert [e.tag for e in events] == ["conclude"]

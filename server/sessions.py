@@ -135,7 +135,7 @@ class Session:
             llm = DeepSeekLLM(api_key=api_key)
             agent_fn = run_agent_v2 if self.meta.get("loop_version", "v2") == "v2" else run_agent
             try:
-                verdict, events, stopped_reason = await asyncio.wait_for(
+                verdict, events, stopped_reason, messages = await asyncio.wait_for(
                     agent_fn(
                         llm, sandbox, self.meta["address"], self.meta.get("creds"), max_steps=40
                     ),
@@ -161,6 +161,11 @@ class Session:
                 self._finish_meta("failed", end_reason="internal_error")
                 self._emit({"type": "done", "stopped_reason": "internal_error", "status": "failed"})
                 return
+            # V3：完整对话落盘（训练数据/步进审查的数据源），逐行 JSONL
+            with (self.dir / "messages.jsonl").open("w", encoding="utf-8") as f:
+                for msg in messages:
+                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+
             for ev in events:
                 self._emit({"type": "step", **ev.__dict__})
 
