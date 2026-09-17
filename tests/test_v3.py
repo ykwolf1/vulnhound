@@ -201,3 +201,25 @@ async def test_replay_carries_auth_headers(tmp_path, monkeypatch):
     req = transport.requests[0]
     assert req.headers.get("Cookie") == "PHPSESSID=abc"
     assert req.headers.get("Content-Type") == "text/plain"
+
+
+async def test_replay_diff_aligned_truncation(tmp_path, monkeypatch):
+    """P1：留痕体被截断存储时，diff 不因截断本身而误报变化。"""
+    make_session_dir(tmp_path, monkeypatch)
+    import json as _json
+    from proxy.audit_proxy import RESP_BODY_LIMIT
+    p = tmp_path / "sessions" / "20260917-abcd" / "proxy.jsonl"
+    recs = [_json.loads(l) for l in p.read_text().splitlines()]
+    long_body = "A" * (RESP_BODY_LIMIT + 500)  # 真实响应超长，留痕只存前 LIMIT
+    recs[0]["resp_body"] = long_body[:RESP_BODY_LIMIT]
+    p.write_text("".join(_json.dumps(r, ensure_ascii=False) + "\n" for r in recs))
+
+    transport = FakeTransport(status=200, body=long_body)  # 重放拿到完整（> LIMIT）
+    c = client()
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real_async_client(transport=transport, **{k: v for k, v in kw.items() if k != "transport"}))
+    async with c:
+        r = await c.post("/api/sessions/20260917-abcd/replay", json={"request_id": 1})
+    body = r.json()
+    assert body["diff"]["body_changed"] is False
+    assert body["diff"]["truncated_comparison"] is True

@@ -13,9 +13,18 @@ __all__ = ["DeepSeekLLM", "LLMError", "LLMResp"]
 
 _RETRY_DELAYS = (1, 2)  # 重试 2 次
 
+# 长对话超时自适应：payload 越大，给 LLM 的响应时间越长（P3）
+_TIMEOUT_BASE = 60
+_TIMEOUT_PER_CHAR = 1 / 2000  # 每 2000 字符 +1s，封顶 180s
+_TIMEOUT_MAX = 180
+
 
 class LLMError(Exception):
-    """LLM 调用最终失败（重试耗尽）。"""
+    """LLM 调用最终失败（重试耗尽）。kind 用于归因：timeout/transport/http_<code>。"""
+
+    def __init__(self, message: str, kind: str = "unknown"):
+        super().__init__(message)
+        self.kind = kind
 
 
 @dataclass
@@ -55,12 +64,14 @@ class DeepSeekLLM:
             payload["tools"] = tools
         headers = {"Authorization": f"Bearer {self.api_key}"}
         url = f"{self.base_url}/chat/completions"
-        last_exc: Exception | None = None
+        last_exc: LLMError | None = None
+        # P3：超时随对话长度自适应，避免长上下文请求固定 60s 必超时
+        timeout = min(_TIMEOUT_MAX, _TIMEOUT_BASE + len(json.dumps(messages, ensure_ascii=False)) * _TIMEOUT_PER_CHAR)
         for attempt in range(len(_RETRY_DELAYS) + 1):
             if attempt:
-                await asyncio.sleep(_RETRY_DELAYS[attempt - 1])
+                await asyncio.sleep(_RETRY_DELAYS[attempt - 1] * (2 ** (attempt - 1)))  # 1s, 4s 指数退避
             try:
-                async with httpx.AsyncClient(timeout=60) as client:
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(url, json=payload, headers=headers)
                 if resp.status_code == 200:
                     msg = resp.json()["choices"][0]["message"]
@@ -70,12 +81,13 @@ class DeepSeekLLM:
                         reasoning_content=msg.get("reasoning_content"),
                     )
                 if resp.status_code == 429 or resp.status_code >= 500:
-                    last_exc = LLMError(f"http {resp.status_code}: {resp.text[:200]}")
+                    last_exc = LLMError(f"http {resp.status_code}: {resp.text[:200]}", kind=f"http_{resp.status_code}")
                     continue
                 logger.error("LLM http %s: %s", resp.status_code, resp.text[:200])
-                raise LLMError(f"http {resp.status_code}: {resp.text[:200]}")
+                raise LLMError(f"http {resp.status_code}: {resp.text[:200]}", kind=f"http_{resp.status_code}")
             except (httpx.TimeoutException, httpx.TransportError) as exc:
-                last_exc = LLMError(f"transport: {exc}")
+                kind = "timeout" if isinstance(exc, httpx.TimeoutException) else "transport"
+                last_exc = LLMError(f"{kind}: {exc}", kind=kind)
                 continue
         logger.error("LLM call failed after retries: %s", last_exc)
-        raise LLMError(f"llm call failed after retries: {last_exc}")
+        raise last_exc if last_exc else LLMError("unknown")

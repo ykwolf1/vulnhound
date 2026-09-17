@@ -59,7 +59,7 @@ def test_score_precision_recall_evidence():
     assert s["true_positives"] == 2 and s["false_positives"] == 0
     assert s["precision"] == 1.0
     assert s["recall"] == round(2 / 3, 3)  # fi 未发现
-    assert s["evidence_total"] == 3 and s["evidence_valid"] == 2  # rid=99 不存在
+    assert s["evidence_total"] == 3 and s["evidence_exists"] == 2 and s["evidence_pointed"] == 2  # rid=99 不存在
     assert s["missed_modules"] == ["/vulnerabilities/fi/"]
 
 
@@ -69,7 +69,7 @@ def test_score_false_positive_and_wrong_module_evidence():
     s = score_session(report, records(emap), GT)
     assert s["false_positives"] == 1 and s["precision"] == 0.0
     # 证据存在但指向非声称模块（未声称时仅要求存在）
-    assert s["evidence_valid"] == 1
+    assert s["evidence_exists"] == 1 and s["evidence_pointed"] == 1
 
 
 def test_score_empty():
@@ -195,3 +195,24 @@ async def test_eval_web_api(eval_env, tmp_path, monkeypatch):
         assert r.status_code == 404
 
 
+
+
+def test_evidence_object_format_with_why():
+    """P2：evidence 新格式 {request_id, why}；rationale 命中模块关键词时指向性放宽。"""
+    emap = {1: "http://t/vulnerabilities/exec/?ip=1"}
+    report = {"verdict": {"findings": [
+        {"title": "命令注入", "severity": "high", "rationale": "exec 模块 ip 参数注入",
+         "evidence": [{"request_id": 1, "why": "响应含 id 命令输出 uid=33"}]},
+    ], "discarded": []}}
+    s = score_session(report, records(emap), GT)
+    assert s["evidence_exists"] == 1 and s["evidence_pointed"] == 1
+
+
+def test_evidence_mixed_format():
+    report = {"verdict": {"findings": [
+        {"title": "SQL Injection sqli", "severity": "high", "rationale": "union",
+         "evidence": [1, {"request_id": 2, "why": "x"}]},
+    ], "discarded": []}}
+    emap = {1: "http://t/vulnerabilities/sqli/", 2: "http://t/vulnerabilities/sqli/?p=2"}
+    s = score_session(report, records(emap), GT)
+    assert s["evidence_total"] == 2 and s["evidence_pointed"] == 2

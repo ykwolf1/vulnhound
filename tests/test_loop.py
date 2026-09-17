@@ -137,7 +137,7 @@ async def test_invalid_verdict_twice_llm_error():
         ]
     )
     verdict, _events, reason, _m = await run_agent(llm, FakeSandbox({}), "http://t", None)
-    assert reason == "llm_error"
+    assert reason.startswith("llm_error")
     assert verdict is None
 
 
@@ -156,5 +156,5 @@ async def test_invalid_verdict_then_valid_recovers():
 async def test_llm_error_propagates():
     llm = FakeLLM([LLMError("boom")])
     verdict, _events, reason, _m = await run_agent(llm, FakeSandbox({}), "http://t", None)
-    assert reason == "llm_error"
+    assert reason.startswith("llm_error")
     assert verdict is None

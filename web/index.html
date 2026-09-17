@@ -527,8 +527,9 @@ async function doReplay(id, out) {
     const d = await res.json();
     if (!res.ok) { out.textContent = '重放失败：' + (d.detail || res.status); return; }
     const sc = d.diff.status_changed, bc = d.diff.body_changed;
+    const trunc = d.diff.truncated_comparison ? '（响应超长，diff 仅基于留痕上限内内容）' : '';
     out.innerHTML = `状态：${esc(d.original.status)} → ${esc(d.replayed.status)}${sc ? ' <span class="changed">(变化)</span>' : ''}\n` +
-      `响应体：${bc ? '<span class="changed">已变化</span>' : '一致'}\n` +
+      `响应体：${bc ? '<span class="changed">已变化</span>' : '一致'}${trunc}\n` +
       `--- 重放响应 ---\n${esc((d.replayed.resp_body || '').slice(0, 2000))}`;
   } catch (e) {
     out.textContent = '重放失败：' + e.message;

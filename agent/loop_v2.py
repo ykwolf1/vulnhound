@@ -4,8 +4,11 @@
 """
 
 import asyncio
+import logging
 
 from pydantic import ValidationError
+
+logger = logging.getLogger("svh.loop_v2")
 
 from agent.llm import LLMError
 from agent.loop import StepEvent, _assistant_msg, _infer_tag
@@ -52,8 +55,9 @@ async def run_agent_v2(
         n += 1
         try:
             resp = await llm.complete(messages, tools=[EXEC_TOOL, REPORT_TOOL, SWITCH_DIRECTION_TOOL])
-        except LLMError:
-            return None, events, "llm_error", messages
+        except LLMError as exc:
+            # P3：归因落盘（llm_error:timeout / llm_error:http_429 ...），评测报告可据此分桶
+            return None, events, f"llm_error:{exc.kind}", messages
 
         if not resp.tool_calls:
             messages.append({"role": "assistant", "content": resp.content or ""})
@@ -141,7 +145,7 @@ async def run_agent_v2(
             elif name == "submit_report":
                 try:
                     verdict = Verdict.model_validate(args)
-                    if verdict.findings and not all(f.evidence for f in verdict.findings):
+                    if verdict.findings and not all(f.evidence_ids for f in verdict.findings):
                         raise ValueError("每条 finding 的 evidence 不能为空")
                 except (ValidationError, ValueError) as exc:
                     if report_retried:
@@ -203,18 +207,23 @@ async def run_agent_v2(
         try:
             resp = await llm.complete(messages, tools=[REPORT_TOOL])
             break
-        except LLMError:
-            if attempt == 1:
-                return None, events, "llm_error", messages
-            await asyncio.sleep(5)
+        except LLMError as exc:
+            if attempt == 0:
+                # P3 兜底：长对话请求偶发失败时不放弃整场——截断历史（system + 首条 + 最近 12 条）再试
+                logger.warning("forced-report LLMError (%s): retrying with truncated history", exc.kind)
+                system, rest = messages[0], messages[1:]
+                messages = [system, *rest] if len(rest) <= 12 else [system, *rest[:1], {"role": "user", "content": f"（中间过程已省略，共 {len(rest) - 1} 条）"}, *rest[-11:]]
+                continue
+            logger.warning("forced-report LLMError after truncation (%s)", exc.kind)
+            return None, events, f"llm_error:{exc.kind}", messages
     if resp.tool_calls and resp.tool_calls[0]["name"] == "submit_report":
         try:
             verdict = Verdict.model_validate(resp.tool_calls[0]["arguments"])
             # 强制收卷同样执行证据契约：无证据的 finding 剔除（保留 discarded 供用户知情）
             if verdict.findings:
-                dropped = [f for f in verdict.findings if not f.evidence]
+                dropped = [f for f in verdict.findings if not f.evidence_ids]
                 if dropped:
-                    verdict.findings = [f for f in verdict.findings if f.evidence]
+                    verdict.findings = [f for f in verdict.findings if f.evidence_ids]
                     for f in dropped:
                         verdict.discarded.append(
                             type(f)(title=f.title, reason="强制收卷时无证据引用，已按契约剔除")

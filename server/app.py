@@ -129,12 +129,19 @@ async def post_replay(session_id: str, body: ReplayBody):
         raise HTTPException(status_code=502, detail=f"replay failed: {type(exc).__name__}") from exc
 
     original = {"status": rec.get("status"), "resp_body": rec.get("resp_body", "")}
+    # P1：留痕响应体可能被截断存储（RESP_BODY_LIMIT），diff 前把双方对齐到同一上限，
+    # 避免仅因截断产生的假阳性；超长时如实标注。
+    from proxy.audit_proxy import RESP_BODY_LIMIT
+    truncated = len(original["resp_body"]) >= RESP_BODY_LIMIT or len(replayed["resp_body"]) >= RESP_BODY_LIMIT
+    a = original["resp_body"][:RESP_BODY_LIMIT]
+    b = replayed["resp_body"][:RESP_BODY_LIMIT]
     return {
         "original": original,
         "replayed": replayed,
         "diff": {
             "status_changed": original["status"] != replayed["status"],
-            "body_changed": original["resp_body"] != replayed["resp_body"],
+            "body_changed": a != b,
+            "truncated_comparison": truncated,
         },
     }
 

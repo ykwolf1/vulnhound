@@ -66,8 +66,8 @@ async def run_agent(
         n += 1
         try:
             resp = await llm.complete(messages, tools=[EXEC_TOOL, REPORT_TOOL])
-        except LLMError:
-            return None, events, "llm_error", messages
+        except LLMError as exc:
+            return None, events, f"llm_error:{exc.kind}", messages
 
         if not resp.tool_calls:
             messages.append({"role": "assistant", "content": resp.content or ""})
@@ -107,7 +107,7 @@ async def run_agent(
             elif name == "submit_report":
                 try:
                     verdict = Verdict.model_validate(args)
-                    if verdict.findings and not all(f.evidence for f in verdict.findings):
+                    if verdict.findings and not all(f.evidence_ids for f in verdict.findings):
                         raise ValueError("每条 finding 的 evidence 不能为空")
                 except (ValidationError, ValueError) as exc:
                     if report_retried:
@@ -146,8 +146,8 @@ async def run_agent(
     )
     try:
         resp = await llm.complete(messages, tools=[REPORT_TOOL])
-    except LLMError:
-        return None, events, "llm_error", messages
+    except LLMError as exc:
+        return None, events, f"llm_error:{exc.kind}", messages
     if resp.tool_calls and resp.tool_calls[0]["name"] == "submit_report":
         try:
             verdict = Verdict.model_validate(resp.tool_calls[0]["arguments"])

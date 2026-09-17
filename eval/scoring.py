@@ -38,6 +38,14 @@ def claim_modules(finding: dict, gt: list[dict]) -> set[str]:
     return claims
 
 
+def _evidence_ids(finding: dict) -> list[int]:
+    """P2：evidence 兼容旧格式（int 列表）与新格式（{request_id, why} 对象列表）。"""
+    out = []
+    for e in finding.get("evidence") or []:
+        out.append(e if isinstance(e, int) else e.get("request_id"))
+    return [x for x in out if x is not None]
+
+
 def score_session(report: dict, proxy_records: list[dict], gt: list[dict]) -> dict:
     """单会话打分。report 为 report.json 内容，proxy_records 为 proxy.jsonl 记录列表。"""
     verdict = report.get("verdict") or {}
@@ -49,19 +57,23 @@ def score_session(report: dict, proxy_records: list[dict], gt: list[dict]) -> di
     true_positives: list[dict] = []
     false_positives: list[dict] = []
 
-    valid_ev = total_ev = 0
+    exists_ok = pointed_ok = total_ev = 0
     for f in findings:
         claims = claim_modules(f, gt) & gt_modules
-        f_evidence = f.get("evidence") or []
-        # 证据有效性：引用存在，且 URL 模块属于该发现声称的模块（未声称时仅要求存在）
+        claims_text = (f.get("title", "") + " " + f.get("rationale", "")).lower()
+        f_evidence = _evidence_ids(f)
+        # P2：有效性拆成两个指标——
+        #   存在性：引用的 request_id 在留痕中存在；
+        #   指向性：存在且 URL 模块 ∈ 声称模块，或 rationale 文本命中该模块关键词（跨模块发现放宽）。
         for rid in f_evidence:
             total_ev += 1
             rec = by_rid.get(rid)
             if rec is None:
                 continue
+            exists_ok += 1
             mod = module_of_url(rec.get("url", ""))
-            if not claims or mod in claims:
-                valid_ev += 1
+            if not claims or mod in claims or (mod and mod.rsplit("/", 2)[-2].replace("_", " ") in claims_text):
+                pointed_ok += 1
         if claims:
             true_positives.append({"title": f.get("title"), "matched_modules": sorted(claims)})
             hit_modules |= claims
@@ -79,7 +91,9 @@ def score_session(report: dict, proxy_records: list[dict], gt: list[dict]) -> di
         "hit_modules": sorted(hit_modules),
         "missed_modules": missed,
         "evidence_total": total_ev,
-        "evidence_valid": valid_ev,
-        "evidence_validity": round(valid_ev / total_ev, 3) if total_ev else None,
+        "evidence_exists": exists_ok,
+        "evidence_pointed": pointed_ok,
+        "evidence_existence": round(exists_ok / total_ev, 3) if total_ev else None,
+        "evidence_validity": round(pointed_ok / total_ev, 3) if total_ev else None,
         "false_positive_list": false_positives,
     }

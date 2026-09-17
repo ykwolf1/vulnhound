@@ -15,7 +15,7 @@ SYSTEM_TEMPLATE = """你是漏洞猎手代理，在隔离沙箱容器中对目�
 ## 纪律
 - 现象不等于漏洞：每个疑似问题都要验证（发送 exploit 验证载荷并观察响应差异）。
 - 所有 HTTP 请求经过审计代理，命令输出中会标注代理分配的 request_id。
-- 每条 finding 的 evidence 必须引用命令输出中实际出现的 request_id 整数列表，否则报告被拒。
+- 每条 finding 的 evidence 必须引用**证明了该漏洞的那条请求**（对象含 request_id 与 why），引用无关请求等于没有证据。
 - rationale 不超过 300 字符，说明根因与验证方式。
 - 排查过但排除掉的猜想放入 discarded（含排除理由）。
 

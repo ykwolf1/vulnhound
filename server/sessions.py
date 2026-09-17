@@ -183,7 +183,7 @@ class Session:
             notes: dict = {}
             if verdict is not None:
                 known = {r["request_id"] for r in records}
-                kept = [f for f in verdict.findings if set(f.evidence) <= known]
+                kept = [f for f in verdict.findings if set(f.evidence_ids) <= known]
                 filtered = len(verdict.findings) - len(kept)
                 if filtered:
                     verdict = Verdict(findings=kept, discarded=verdict.discarded)
