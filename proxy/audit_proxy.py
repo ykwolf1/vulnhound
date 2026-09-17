@@ -139,7 +139,6 @@ class AuditProxy:
             st.block_reason = f"target {host}:{port}:{scheme} not in whitelist"
             await self._reject(writer, st)
             return
-
         headers = {}
         for line in lines[1:]:
             if ":" in line:
@@ -160,6 +159,9 @@ class AuditProxy:
         path = parts.path or "/"
         if parts.query:
             path += "?" + parts.query
+        # P2a：留痕 URL 规范化为白名单登记的目标（容器 hosts 别名 → 用户输入的 host:port），
+        # 转发仍用原始 host（保持请求语义不变）
+        st.url = self._build_url(scheme, self.allowed[0], self.allowed[1], path)
         assert self._client is not None
         try:
             resp = await self._client.request(

@@ -135,3 +135,13 @@ async def test_auth_headers_recorded(env):
     rec = _records(record_path)[0]
     assert rec["req_headers"].get("Cookie") == "PHPSESSID=abc; security=low"
     assert "X-Ignored" not in rec["req_headers"]
+
+
+async def test_record_url_normalized_to_allowed(env):
+    """P2a：容器 hosts 别名请求的留痕 URL 规范化为白名单登记目标。"""
+    _proxy, proxy_port, target_port, record_path = env
+    async with _client(proxy_port) as client:
+        # 请求走 localhost 别名（若与白名单三元组 host 不同），留痕应重写为白名单 host
+        await client.get(f"http://127.0.0.1:{target_port}/index.php")
+    rec = _records(record_path)[0]
+    assert rec["url"].startswith(f"http://{_proxy.allowed[0]}")
