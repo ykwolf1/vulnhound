@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from agent.llm import LLMError
 from agent.progress import ProgressTracker
 from agent.prompt import EXEC_TOOL, REPORT_TOOL, build_system_prompt
-from agent.schema import Verdict
+from agent.schema import Verdict, Evidence
 
 __all__ = ["StepEvent", "run_agent"]
 
@@ -109,6 +109,13 @@ async def run_agent(
                     verdict = Verdict.model_validate(args)
                     if verdict.findings and not all(f.evidence_ids for f in verdict.findings):
                         raise ValueError("每条 finding 的 evidence 不能为空")
+                    # P2b：why 必须说明"响应内容证明了什么"，空泛引用打回重报
+                    _weak = [f.title for f in verdict.findings
+                             if any(isinstance(e, Evidence) and len(e.why.strip()) < 10 for e in f.evidence)]
+                    if _weak:
+                        raise ValueError(
+                            "以下 finding 的 evidence 缺少 why 或 why 过于空泛（需≥10字，说明该请求的响应内容证明了什么）：" + "、".join(_weak)
+                        )
                 except (ValidationError, ValueError) as exc:
                     if report_retried:
                         return None, events, "llm_error", messages
