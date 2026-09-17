@@ -3,16 +3,30 @@
 # 用法：
 #   只起靶场（app 在宿主机跑，推荐 —— 沙箱 docker exec 依赖宿主 docker）：
 #     docker compose -f deploy/docker-compose.yml up -d dvwa
+#     DVWA_PORT=8081 docker compose -f deploy/docker-compose.yml up -d dvwa   # 换端口
 #   Linux 服务器上连 app 一起容器化（host 网络 + docker.sock）：
 #     docker compose -f deploy/docker-compose.yml --profile app up -d
 #
-# 注意：app 容器模式依赖 host 网络，macOS 的 Docker Desktop 不支持，Mac 上请用宿主机方式。
+# 注意：
+# - app 容器模式依赖 host 网络，macOS 的 Docker Desktop 不支持，Mac 上请用宿主机方式（./start.sh）。
+# - DVWA 首次启动需访问 http://127.0.0.1:${DVWA_PORT}/setup.php 完成 setup。
 
 services:
+  db:
+    image: mariadb:10
+    environment:
+      - MARIADB_ROOT_PASSWORD=dvwa
+      - MARIADB_DATABASE=dvwa
+      - MARIADB_USER=dvwa
+      - MARIADB_PASSWORD=p@ssw0rd
+    restart: unless-stopped
+
   dvwa:
-    image: vulnerables/web-dvwa:latest
+    image: ghcr.io/digininja/dvwa:latest
     ports:
-      - "8080:80"
+      - "${DVWA_PORT:-8080}:80"
+    depends_on:
+      - db
     restart: unless-stopped
 
   app:
@@ -24,9 +38,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Sandbox 需要在宿主 docker 里起 vh-agent
       - ../sessions:/app/sessions                  # 会话数据持久化
-      - db:/app/data                               # SQLite 持久化
+      - dbdata:/app/data                           # SQLite 持久化
     environment:
-      - LLM_API_KEY=${LLM_API_KEY:?请在 .env 或环境里设置 LLM_API_KEY}
+      - LLM_API_KEY=${LLM_API_KEY:-}  # app 启动时校验：缺失会话创建即报 missing_key
       - AUTH_ENABLED=${AUTH_ENABLED:-0}
       - SECRET_KEY=${SECRET_KEY:-}
       - VULNHOUND_DB=/app/data/vulnhound.db
@@ -34,4 +48,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  db:
+  dbdata:

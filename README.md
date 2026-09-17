@@ -37,9 +37,10 @@ export LLM_API_KEY=sk-...
 
 ```sh
 cd deploy && LLM_API_KEY=sk-... docker compose --profile app up -d
+# 只起 DVWA 靶场：docker compose -f deploy/docker-compose.yml up -d dvwa（DVWA_PORT= 换端口）
 ```
 
-app 容器用 host 网络 + 挂载 docker.sock 在宿主 docker 里起沙箱；macOS 不支持 host 网络，请用上面的宿主机方式。
+DVWA 栈含 mariadb db 服务（首次需访问 `/setup.php`）；app 容器用 host 网络 + 挂载 docker.sock 在宿主 docker 里起沙箱；macOS 不支持 host 网络，请用上面的宿主机方式。
 
 手动步骤：
 
