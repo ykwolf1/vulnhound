@@ -99,13 +99,23 @@ V2 在原单层 ReAct 之上增加方向管理层（外层）：模型可通过 
 
 ## V4：评测
 
-`eval/` 子系统：以 DVWA 已知漏洞为 ground truth（`eval/groundtruth/dvwa.json`），跑 N 次会话产出量化指标——**查准率 / 查全率 / 证据有效率**、完成率、平均耗时，附误报与漏报清单；结果落 `eval/results/`（JSON + Markdown）。
+`eval/` 子系统：以 DVWA 已知漏洞为 ground truth（`eval/groundtruth/dvwa.json`），跑 N 次会话产出量化指标，结果落 `eval/results/`（JSON + Markdown）。
 
 ```sh
 LLM_API_KEY=sk-... .venv/bin/python -m eval --target http://127.0.0.1:8080 --runs 3 --concurrency 1 --gt dvwa
 ```
 
+指标体系（逐会话 + 均值）：
+
+- **查准率 precision**：命中 GT 模块的发现占比；**查全率 recall**：被发现的 GT 模块占比
+- **证据存在性**：evidence 引用的 request_id 在留痕中存在的比例
+- **证据指向性**：存在且指向发现声称模块的比例（跨模块发现按 rationale 关键词放宽）
+- **证据可得性 / 模型引用好**（P2b）：留痕中是否存在更优证据 vs 模型是否真的引用了对——两者分离，归因"没证据"还是"没引用对"
+- 完成率、平均耗时、误报/漏报清单
+
 Web 评测页：`http://127.0.0.1:8900/eval.html`——历史评测列表、单次详情（KPI、单会话明细、误报/漏报），也可在页面直接发起评测（后台跑批）。
+
+问题记录与迭代依据见 `docs/issues.md`（三轮评测对照 + P1-P2b 修复脉络）。
 
 ## 已知边界（MVP）
 
