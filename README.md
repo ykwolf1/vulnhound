@@ -97,6 +97,16 @@ V2 在原单层 ReAct 之上增加方向管理层（外层）：模型可通过 
 - **独立导出**（不打包）：HTML 文字版报告 / SARIF 2.1.0 / OpenAI messages JSONL（训练数据），报告页逐项下载。
 - 会话结束自动落盘 `messages.jsonl`（完整对话，训练/微调燃料）。
 
+## V4：评测
+
+`eval/` 子系统：以 DVWA 已知漏洞为 ground truth（`eval/groundtruth/dvwa.json`），跑 N 次会话产出量化指标——**查准率 / 查全率 / 证据有效率**、完成率、平均耗时，附误报与漏报清单；结果落 `eval/results/`（JSON + Markdown）。
+
+```sh
+LLM_API_KEY=sk-... .venv/bin/python -m eval --target http://127.0.0.1:8080 --runs 3 --concurrency 1 --gt dvwa
+```
+
+Web 评测页：`http://127.0.0.1:8900/eval.html`——历史评测列表、单次详情（KPI、单会话明细、误报/漏报），也可在页面直接发起评测（后台跑批）。
+
 ## 已知边界（MVP）
 
 - 会话为内存态实例缓存：服务重启后旧会话的报告可读，但事件流/SSE 不可恢复

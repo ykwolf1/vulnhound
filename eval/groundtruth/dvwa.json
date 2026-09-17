@@ -1,0 +1,15 @@
+[
+  {"module": "/vulnerabilities/sqli/", "vuln_type": "SQL Injection", "severity": "high"},
+  {"module": "/vulnerabilities/sqli_blind/", "vuln_type": "SQL Injection (Blind)", "severity": "high"},
+  {"module": "/vulnerabilities/xss_r/", "vuln_type": "XSS (Reflected)", "severity": "medium"},
+  {"module": "/vulnerabilities/xss_s/", "vuln_type": "XSS (Stored)", "severity": "medium"},
+  {"module": "/vulnerabilities/xss_d/", "vuln_type": "XSS (DOM)", "severity": "medium"},
+  {"module": "/vulnerabilities/exec/", "vuln_type": "Command Injection", "severity": "high"},
+  {"module": "/vulnerabilities/fi/", "vuln_type": "File Inclusion", "severity": "high"},
+  {"module": "/vulnerabilities/upload/", "vuln_type": "File Upload", "severity": "high"},
+  {"module": "/vulnerabilities/csrf/", "vuln_type": "CSRF", "severity": "low"},
+  {"module": "/vulnerabilities/captcha/", "vuln_type": "Insecure CAPTCHA", "severity": "medium"},
+  {"module": "/vulnerabilities/weak_id/", "vuln_type": "Weak Session IDs", "severity": "low"},
+  {"module": "/vulnerabilities/authbypass/", "vuln_type": "Authentication Bypass", "severity": "high"},
+  {"module": "/vulnerabilities/open_redirect/", "vuln_type": "Open HTTP Redirect", "severity": "low"}
+]

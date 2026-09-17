@@ -173,5 +173,53 @@ async def get_export(session_id: str, format: str):
     )
 
 
+# ---- V4：评测 ----
+
+_EVAL_TASKS: dict = {}
+
+
+class EvalBody(BaseModel):
+    target: str = "http://127.0.0.1:8080"
+    runs: int = 3
+    concurrency: int = 1
+    gt: str = "dvwa"
+    loop_version: str = "v2"
+
+
+@app.get("/api/evals")
+async def get_evals():
+    from eval.report import list_results
+    return list_results()
+
+
+@app.get("/api/evals/{eval_id}")
+async def get_eval(eval_id: str):
+    from eval.report import load_result
+    result = load_result(eval_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="eval not found")
+    return result
+
+
+@app.post("/api/evals")
+async def post_eval(body: EvalBody):
+    from eval.report import save_result
+    from eval.runner import run_batch
+
+    async def _job():
+        try:
+            result = await run_batch(
+                body.target, body.runs, body.concurrency, gt_name=body.gt, loop_version=body.loop_version
+            )
+            return {"eval_id": save_result(result), "result": result}
+        except Exception as exc:
+            return {"error": f"{type(exc).__name__}: {exc}"}
+
+    task = asyncio.create_task(_job())
+    _EVAL_TASKS[id(task)] = task
+    task.add_done_callback(lambda t: _EVAL_TASKS.pop(id(t), None))
+    return {"status": "started"}
+
+
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

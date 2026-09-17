@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vulnhound · 评测</title>
+<style>
+:root {
+  --brand-500:#2f66f5; --brand-50:#eef4ff; --brand-100:#d9e6ff;
+  --gray-50:#f6f7f9; --gray-500:#6b7280; --gray-600:#4b5563; --gray-900:#1a1a1a;
+  --bg-page:#f6f7f9; --bg-surface:#ffffff; --text-primary:#1a1a1a; --text-secondary:#6b7280;
+  --border-default:#e5e7eb; --border-subtle:#f3f4f6;
+  --red-500:#ef4444; --green-600:#16a34a;
+  --r-md:6px; --r-lg:8px; --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px;
+  --font-ui:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { background:var(--bg-page); color:var(--text-primary); font-family:var(--font-ui); font-size:14px; line-height:1.5; }
+.topbar { height:56px; background:var(--bg-surface); border-bottom:1px solid var(--border-default);
+  display:flex; align-items:center; gap:12px; padding:0 24px; }
+.wordmark { display:flex; align-items:center; gap:8px; font-weight:600; font-size:16px; }
+.wordmark svg { color:var(--brand-500); }
+.wordmark a, .topbar a { color:var(--gray-500); font-size:13px; text-decoration:none; }
+.wordmark a:hover, .topbar a:hover { color:var(--brand-500); }
+.wrap { max-width:1024px; margin:0 auto; padding:32px 24px 64px; }
+h2 { font-size:20px; font-weight:600; margin-bottom:16px; }
+.card { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg);
+  padding:24px; margin-bottom:16px; }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+.field label { display:block; font-size:12px; color:var(--gray-600); margin-bottom:4px; }
+.field input { width:200px; height:36px; padding:0 10px; border:1px solid var(--border-default);
+  border-radius:var(--r-md); font-family:var(--font-mono); font-size:13px; }
+.btn { height:36px; padding:0 16px; background:var(--brand-500); color:#fff; border:none;
+  border-radius:var(--r-md); font:inherit; font-size:13px; cursor:pointer; }
+.btn:disabled { opacity:.6; cursor:default; }
+table { border-collapse:collapse; width:100%; font-size:13px; }
+th,td { border:1px solid var(--border-default); padding:8px 10px; text-align:left; }
+th { background:var(--gray-50); color:var(--gray-600); font-weight:500; }
+td.num { font-family:var(--font-mono); }
+.kpis { display:flex; gap:24px; flex-wrap:wrap; margin-bottom:16px; }
+.kpi { background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--r-lg); padding:16px 24px; }
+.kpi .v { font-size:26px; font-weight:600; font-family:var(--font-mono); }
+.kpi .k { font-size:12px; color:var(--text-secondary); }
+.muted { color:var(--text-secondary); font-size:13px; }
+ul { padding-left:20px; }
+li { margin:4px 0; font-size:13px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wordmark">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    vulnhound <a href="/">← 返回测试</a>
+  </div>
+</header>
+<div class="wrap">
+  <h2>量化评测</h2>
+  <div class="card">
+    <div class="row">
+      <div class="field"><label>目标地址</label><input id="target" value="http://127.0.0.1:8080"></div>
+      <div class="field"><label>次数</label><input id="runs" value="3" style="width:70px"></div>
+      <div class="field"><label>并发</label><input id="conc" value="1" style="width:70px"></div>
+      <div class="field"><label>评测集</label><input id="gt" value="dvwa" style="width:90px"></div>
+      <button class="btn" id="runBtn">发起评测</button>
+    </div>
+    <p class="muted" id="status" style="margin-top:10px"></p>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th>评测 ID</th><th>目标</th><th>次数</th><th>完成率</th><th>查准率</th><th>查全率</th><th>证据有效率</th><th>平均耗时</th><th></th></tr></thead>
+      <tbody id="evalRows"><tr><td colspan="9" class="muted">加载中…</td></tr></tbody>
+    </table>
+  </div>
+  <div id="detail"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function refresh() {
+  const list = await (await fetch('/api/evals')).json();
+  const tb = $('evalRows');
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="9" class="muted">暂无评测，先发起一次。</td></tr>'; return; }
+  tb.innerHTML = list.map(e => `<tr>
+    <td style="font-family:var(--font-mono)">${esc(e.eval_id)}</td>
+    <td style="font-family:var(--font-mono)">${esc(e.target)}</td>
+    <td class="num">${e.runs}</td>
+    <td class="num">${e.summary.completed}/${e.runs}</td>
+    <td class="num">${e.summary.avg_precision ?? '—'}</td>
+    <td class="num">${e.summary.avg_recall ?? '—'}</td>
+    <td class="num">${e.summary.avg_evidence_validity ?? '—'}</td>
+    <td class="num">${e.summary.avg_elapsed_s ?? '—'}s</td>
+    <td><a href="#" onclick="showDetail('${esc(e.eval_id)}');return false;">详情</a></td>
+  </tr>`).join('');
+}
+
+async function showDetail(eid) {
+  const d = await (await fetch(`/api/evals/${eid}`)).json();
+  const s = d.summary;
+  $('detail').innerHTML = `
+  <div class="kpis">
+    <div class="kpi"><div class="v">${s.avg_precision ?? '—'}</div><div class="k">查准率</div></div>
+    <div class="kpi"><div class="v">${s.avg_recall ?? '—'}</div><div class="k">查全率</div></div>
+    <div class="kpi"><div class="v">${s.avg_evidence_validity ?? '—'}</div><div class="k">证据有效率</div></div>
+    <div class="kpi"><div class="v">${s.avg_elapsed_s ?? '—'}s</div><div class="k">平均耗时</div></div>
+  </div>
+  <div class="card"><b>单次明细</b>
+    <table><thead><tr><th>会话</th><th>耗时s</th><th>步数</th><th>findings</th><th>P</th><th>R</th><th>误报</th><th>漏报模块</th></tr></thead>
+    <tbody>${d.sessions.map(x => `<tr>
+      <td style="font-family:var(--font-mono)">${esc(x.session_id)}</td>
+      <td class="num">${x.elapsed_s}</td><td class="num">${x.steps}</td><td class="num">${x.findings_total}</td>
+      <td class="num">${x.precision ?? '—'}</td><td class="num">${x.recall ?? '—'}</td>
+      <td>${x.false_positive_list.length ? x.false_positive_list.map(f => esc(f.title)).join('；') : '—'}</td>
+      <td class="num">${x.missed_modules.length}</td></tr>`).join('')}</tbody></table>
+  </div>
+  ${d.sessions.some(x => x.false_positive_list.length) ? `<div class="card"><b>误报明细</b><ul>${d.sessions.map(x => x.false_positive_list.map(f => `<li>${esc(x.session_id)}：${esc(f.title)} —— ${esc(f.rationale || '')}</li>`).join('')).join('')}</ul></div>` : ''}
+  ${(() => { const m = [...new Set(d.sessions.flatMap(x => x.missed_modules))]; return m.length ? `<div class="card"><b>漏报模块（未被发现）</b><ul>${m.map(x => `<li style="font-family:var(--font-mono)">${esc(x)}</li>`).join('')}</ul></div>` : ''; })()}`;
+}
+
+$('runBtn').onclick = async () => {
+  $('runBtn').disabled = true;
+  $('status').textContent = '评测进行中（后台跑批，完成后刷新列表可见）…';
+  try {
+    const res = await fetch('/api/evals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: $('target').value.trim(), runs: +$('runs').value, concurrency: +$('conc').value, gt: $('gt').value.trim() }) });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.status); }
+    const poll = setInterval(async () => {
+      await refresh();
+      $('status').textContent = '评测进行中…（列表出现新条目即完成）';
+    }, 10000);
+    setTimeout(() => { clearInterval(poll); $('runBtn').disabled = false; $('status').textContent = '最近一次评测已完成或仍在跑，可再次刷新。'; }, 120000);
+  } catch (e) { $('status').textContent = '发起失败：' + e.message; $('runBtn').disabled = false; }
+};
+refresh();
+</script>
+</body>
+</html>
