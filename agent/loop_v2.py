@@ -3,6 +3,8 @@
 行为契约见 docs/plans/2026-09-16-v2-dual-loop.md Task 2 与 docs/spec-v2.md §3.3。
 """
 
+import asyncio
+
 from pydantic import ValidationError
 
 from agent.llm import LLMError
