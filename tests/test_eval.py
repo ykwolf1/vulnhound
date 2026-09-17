@@ -216,3 +216,21 @@ def test_evidence_mixed_format():
     emap = {1: "http://t/vulnerabilities/sqli/", 2: "http://t/vulnerabilities/sqli/?p=2"}
     s = score_session(report, records(emap), GT)
     assert s["evidence_total"] == 2 and s["evidence_pointed"] == 2
+
+
+def test_best_available_evidence_and_ratios():
+    """P2b：可得性 vs 模型引用分离。"""
+    emap = {
+        1: "http://t/vulnerabilities/sqli/?id=1",      # 留痕有真证据（响应非空）
+        2: "http://t/security.php",                     # 模型引用的"路过"请求
+    }
+    report = {"verdict": {"findings": [
+        {"title": "SQL Injection sqli module", "severity": "high", "rationale": "union",
+         "evidence": [2]},
+    ], "discarded": []}}
+    recs = records(emap)
+    recs[0]["resp_body"] = "admin:hash..."
+    s = score_session(report, recs, GT)
+    assert s["evidence_available_ratio"] == 1.0      # 真证据可得
+    assert s["model_cited_well_ratio"] == 0.0        # 但模型没引用对
+    assert s["evidence_validity"] == 0.0

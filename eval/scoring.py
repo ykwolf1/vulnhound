@@ -46,6 +46,18 @@ def _evidence_ids(finding: dict) -> list[int]:
     return [x for x in out if x is not None]
 
 
+def best_available_evidence(claims: set[str], by_rid: dict) -> list[int]:
+    """P2b：在留痕中自动搜索更优证据——URL 模块 ∈ 声称模块且响应体非空的记录。
+
+    衡量"证据是否可得"，与"模型是否引用对"分离。
+    """
+    return sorted(
+        rid
+        for rid, rec in by_rid.items()
+        if not rec.get("blocked") and rec.get("resp_body") and module_of_url(rec.get("url", "")) in claims
+    )
+
+
 def score_session(report: dict, proxy_records: list[dict], gt: list[dict]) -> dict:
     """单会话打分。report 为 report.json 内容，proxy_records 为 proxy.jsonl 记录列表。"""
     verdict = report.get("verdict") or {}
@@ -75,7 +87,15 @@ def score_session(report: dict, proxy_records: list[dict], gt: list[dict]) -> di
             if not claims or mod in claims or (mod and mod.rsplit("/", 2)[-2].replace("_", " ") in claims_text):
                 pointed_ok += 1
         if claims:
-            true_positives.append({"title": f.get("title"), "matched_modules": sorted(claims)})
+            best = best_available_evidence(claims, by_rid)
+            true_positives.append({
+                "title": f.get("title"),
+                "matched_modules": sorted(claims),
+                # P2b：模型引用 vs 留痕中可得的最优证据
+                "cited_well": len([r for r in _evidence_ids(f) if by_rid.get(r) and module_of_url(by_rid[r].get("url", "")) in claims]),
+                "available": len(best),
+                "model_cited_well": len([r for r in _evidence_ids(f) if by_rid.get(r) and module_of_url(by_rid[r].get("url", "")) in claims]) > 0,
+            })
             hit_modules |= claims
         else:
             false_positives.append({"title": f.get("title"), "rationale": f.get("rationale")})
@@ -96,4 +116,11 @@ def score_session(report: dict, proxy_records: list[dict], gt: list[dict]) -> di
         "evidence_existence": round(exists_ok / total_ev, 3) if total_ev else None,
         "evidence_validity": round(pointed_ok / total_ev, 3) if total_ev else None,
         "false_positive_list": false_positives,
+        # P2b：可得性 = 存在模块匹配且响应非空证据的 TP 发现占比；差距 = 模型引用好 vs 可得的差
+        "evidence_available_ratio": round(
+            sum(1 for t in true_positives if t["available"] > 0) / n_tp, 3
+        ) if n_tp else None,
+        "model_cited_well_ratio": round(
+            sum(1 for t in true_positives if t["model_cited_well"]) / n_tp, 3
+        ) if n_tp else None,
     }
