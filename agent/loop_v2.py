@@ -65,7 +65,7 @@ async def run_agent_v2(
             )
             continue
 
-        messages.append(_assistant_msg(resp.tool_calls))
+        messages.append(_assistant_msg(resp.tool_calls, resp.reasoning_content))
 
         for call in resp.tool_calls:
             name, args, cid = call["name"], call["arguments"], call["id"]

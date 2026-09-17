@@ -31,8 +31,8 @@ def _infer_tag(cmd: str) -> Tag:
     return "act" if any(h in cmd for h in _PROBE_HINTS) else "observe"
 
 
-def _assistant_msg(resp_tool_calls: list[dict]) -> dict:
-    return {
+def _assistant_msg(resp_tool_calls: list[dict], reasoning_content: str | None = None) -> dict:
+    msg = {
         "role": "assistant",
         "content": None,
         "tool_calls": [
@@ -44,6 +44,9 @@ def _assistant_msg(resp_tool_calls: list[dict]) -> dict:
             for c in resp_tool_calls
         ],
     }
+    if reasoning_content:
+        msg["reasoning_content"] = reasoning_content
+    return msg
 
 
 async def run_agent(
@@ -76,7 +79,7 @@ async def run_agent(
             )
             continue
 
-        messages.append(_assistant_msg(resp.tool_calls))
+        messages.append(_assistant_msg(resp.tool_calls, resp.reasoning_content))
 
         for call in resp.tool_calls:
             name, args, cid = call["name"], call["arguments"], call["id"]

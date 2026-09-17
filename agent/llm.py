@@ -22,6 +22,7 @@ class LLMError(Exception):
 class LLMResp:
     content: str | None = None
     tool_calls: list[dict] = field(default_factory=list)
+    reasoning_content: str | None = None  # DeepSeek 思考模式：回传 API 必需
 
 
 def _parse_tool_calls(raw: list[dict]) -> list[dict]:
@@ -66,6 +67,7 @@ class DeepSeekLLM:
                     return LLMResp(
                         content=msg.get("content"),
                         tool_calls=_parse_tool_calls(msg.get("tool_calls")),
+                        reasoning_content=msg.get("reasoning_content"),
                     )
                 if resp.status_code == 429 or resp.status_code >= 500:
                     last_exc = LLMError(f"http {resp.status_code}: {resp.text[:200]}")
