@@ -23,6 +23,7 @@
 - `POST /api/sessions/{id}/replay`，body：`{"request_id": int, "overrides": {"method"?, "url"?, "body"?}}`（overrides 可选）。
 - server 从 proxy.jsonl 取原始记录，用 httpx 重发（不经过审计代理，也不写 proxy.jsonl），返回 `{original: {...}, replayed: {...}, diff: {status_changed, body_changed}}`。
 - 仅允许该会话 meta 中登记的 host:port（防止变成任意 SSRF 跳板）；blocked 记录拒绝重放。
+- V3.1：代理留存认证相关请求头（cookie/authorization/content-type/user-agent/referer/accept）到 `req_headers`，重放时带回，复现当时的会话上下文。
 
 ## 导出
 

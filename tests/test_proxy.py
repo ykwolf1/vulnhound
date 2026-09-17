@@ -123,3 +123,15 @@ async def test_malformed_request_is_recorded_not_silent(tmp_path):
     assert lines, "畸形请求必须留审计记录"
     entry = json.loads(lines[-1])
     assert entry["blocked"] is True and "malformed" in entry["block_reason"]
+
+
+async def test_auth_headers_recorded(env):
+    _proxy, proxy_port, target_port, record_path = env
+    async with _client(proxy_port) as client:
+        await client.get(
+            f"http://127.0.0.1:{target_port}/x",
+            headers={"Cookie": "PHPSESSID=abc; security=low", "X-Ignored": "drop-me"},
+        )
+    rec = _records(record_path)[0]
+    assert rec["req_headers"].get("Cookie") == "PHPSESSID=abc; security=low"
+    assert "X-Ignored" not in rec["req_headers"]

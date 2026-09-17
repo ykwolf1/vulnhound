@@ -49,6 +49,7 @@ def make_session_dir(tmp_path, monkeypatch):
     (d / "report.json").write_text(json.dumps(REPORT, ensure_ascii=False), encoding="utf-8")
     (d / "messages.jsonl").write_text("".join(json.dumps(m, ensure_ascii=False) + "\n" for m in MESSAGES), encoding="utf-8")
     monkeypatch.setattr(sess, "SESSIONS_DIR", tmp_path / "sessions")
+    sess._CACHE.clear()  # 避免同 id 缓存指向上一个测试的目录
     return d
 
 
@@ -130,9 +131,11 @@ class FakeTransport(httpx.AsyncBaseTransport):
     def __init__(self, status=200, body="new"):
         self.status, self.body = status, body
         self.seen = []
+        self.requests = []
 
     async def handle_async_request(self, request):
         self.seen.append((request.method, str(request.url), request.content))
+        self.requests.append(request)
         return httpx.Response(self.status, text=self.body)
 
 
@@ -179,3 +182,22 @@ async def test_replay_rejects_offtarget_and_blocked(tmp_path, monkeypatch):
         assert r.status_code == 422
         r = await c.post("/api/sessions/20260917-abcd/replay", json={"request_id": 99})
         assert r.status_code == 404
+
+
+async def test_replay_carries_auth_headers(tmp_path, monkeypatch):
+    make_session_dir(tmp_path, monkeypatch)
+    import json as _json
+    p = tmp_path / "sessions" / "20260917-abcd" / "proxy.jsonl"
+    recs = [_json.loads(l) for l in p.read_text().splitlines()]
+    recs[0]["req_headers"] = {"Cookie": "PHPSESSID=abc", "Content-Type": "text/plain"}
+    p.write_text("".join(_json.dumps(r, ensure_ascii=False) + "\n" for r in recs))
+    transport = FakeTransport()
+    c = client()
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real_async_client(transport=transport, **{k: v for k, v in kw.items() if k != "transport"}))
+    async with c:
+        r = await c.post("/api/sessions/20260917-abcd/replay", json={"request_id": 1})
+        assert r.status_code == 200
+    req = transport.requests[0]
+    assert req.headers.get("Cookie") == "PHPSESSID=abc"
+    assert req.headers.get("Content-Type") == "text/plain"

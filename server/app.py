@@ -117,8 +117,10 @@ async def post_replay(session_id: str, body: ReplayBody):
         raise HTTPException(status_code=422, detail="replay target must match session target")
 
     try:
+        # V3.1：带回留存的认证相关头（cookie/authorization 等），复现当时的会话上下文
+        replay_headers = dict(rec.get("req_headers") or {})
         async with httpx.AsyncClient(verify=False, follow_redirects=False, timeout=15) as client:
-            resp = await client.request(method, url, content=req_body)
+            resp = await client.request(method, url, content=req_body, headers=replay_headers)
         replayed = {
             "status": resp.status_code,
             "resp_body": resp.text[:65536],

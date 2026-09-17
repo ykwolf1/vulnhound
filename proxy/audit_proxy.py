@@ -36,6 +36,7 @@ class _RequestState:
     status: int | None = None
     req_body: str = ""
     resp_body: str = ""
+    req_headers: dict = field(default_factory=dict)
     blocked: bool = False
     block_reason: str | None = None
 
@@ -79,6 +80,7 @@ class AuditProxy:
             "status": st.status,
             "req_body": st.req_body[:REQ_BODY_LIMIT],
             "resp_body": st.resp_body[:RESP_BODY_LIMIT],
+            "req_headers": st.req_headers,
             "blocked": st.blocked,
             "block_reason": st.block_reason,
         }
@@ -144,6 +146,11 @@ class AuditProxy:
                 k, v = line.split(":", 1)
                 if k.strip().lower() not in ("host", "proxy-connection", "connection"):
                     headers[k.strip()] = v.strip()
+        # V3.1：留存认证相关头，供重放复现当时的会话上下文
+        st.req_headers = {
+            k: v for k, v in headers.items()
+            if k.lower() in ("cookie", "authorization", "content-type", "user-agent", "referer", "accept")
+        }
 
         body = b""
         if (cl := headers.get("Content-Length")) is not None:
